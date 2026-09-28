@@ -28,21 +28,32 @@ firebase use --add        # escolha o projeto
 firebase deploy --only hosting
 ```
 
-O `firebase.json` já está configurado (publica a raiz, ignora `server.js`, `README.md` etc.). O modo local funciona por completo no Hosting. O modo online precisa do servidor de salas (veja abaixo), que o Hosting não executa.
+O `firebase.json` já está configurado (publica a raiz, ignora `server.js`, `README.md` etc.). Tanto o modo local quanto o online funcionam direto no Hosting.
 
 ## Multiplayer online
 
-1. Rode o servidor do jogo (`npm start`) numa máquina acessível por todos, ou faça deploy dele em qualquer serviço Node (Render, Fly.io, Railway...). Ele usa a variável `PORT` e não tem dependências.
-2. No título, escolha **Criar sala online**. Aparece um código de 4 letras e um link de convite (`?sala=ABCD`).
-3. Os amigos abrem o link, ou escolhem **Entrar em sala online** e digitam o código.
+Funciona **só com o navegador**, sem servidor próprio: os jogadores se conectam direto entre si por **WebRTC**, e o [PeerJS](https://peerjs.com) (serviço público e gratuito) é usado apenas para eles se encontrarem, por alguns segundos.
+
+1. No título, escolha **Criar sala online**. Aparece um código de 4 letras e um link de convite (`?sala=ABCD`).
+2. Os amigos abrem o link, ou escolhem **Entrar em sala online** e digitam o código.
 
 - Até 4 heróis por partida, misturando jogadores locais (teclado/gamepads do anfitrião) e online. Até 7 convidados podem se conectar, e quem sobra assiste.
 - Dá para entrar no meio da partida: quem está assistindo aperta ENTER/START.
-- O anfitrião roda a simulação e envia o estado 20 vezes por segundo. Os convidados veem os inimigos interpolados e o próprio herói com predição local, então o movimento responde na hora.
-- O servidor só repassa mensagens entre os jogadores da sala (WebSocket implementado sem bibliotecas).
-- Se o jogo estiver num servidor diferente do da página, use `?server=wss://seu-servidor/ws`.
+- O navegador do anfitrião roda a simulação e envia o estado 20 vezes por segundo. Os convidados veem os inimigos interpolados e o próprio herói com predição local.
+- Se o anfitrião fechar a aba, a partida acaba para todos.
 
-A versão publicada como Artifact do Claude não consegue jogar online, porque a página não pode abrir conexões WebSocket. Lá só o modo local funciona.
+### Configuração (`src/config.js`)
+
+Tudo o que está no site é público, então lá só vão endereços e chaves públicas, nunca senhas.
+
+- `transport`: `'peerjs'` (padrão, só navegador) ou `'ws'` (usa o `server.js` como intermediário).
+- `peer`: vazio usa a nuvem gratuita do PeerJS com os servidores STUN/TURN padrão dele. Dá para apontar para um servidor PeerJS próprio ou adicionar servidores TURN (exemplo no arquivo).
+
+A biblioteca do PeerJS está em `vendor/peerjs.min.js` (licença MIT), então o jogo não depende de CDN.
+
+### Alternativa com servidor próprio
+
+`npm start` também sobe um intermediário WebSocket de salas. Para usá-lo, abra o jogo com `?transport=ws` (mesmo endereço do servidor) ou `?server=wss://seu-servidor/ws`.
 
 ## O que vem do clássico
 
@@ -83,7 +94,7 @@ A versão publicada como Artifact do Claude não consegue jogar online, porque a
 
 ```
 index.html        página + canvas
-server.js         servidor estático + salas online via WebSocket (npm start)
+server.js         servidor local + intermediário WebSocket opcional (npm start)
 src/main.js       loop principal, configurações, recordes
 src/screens.js    telas: título, seleção, jogo/pausa, relíquias, fim de jogo
 src/game.js       simulação: heróis, inimigos, IA, combate, câmera, iluminação
@@ -91,7 +102,10 @@ src/level.js      gerador procedural de masmorras
 src/render.js     arte procedural (tiles, heróis, monstros, itens)
 src/ui.js         HUD, minimapa, controles de toque
 src/input.js      teclado, mouse, gamepads e toque unificados
-src/net.js        conexão, salas, sincronização de telas e controles remotos
+src/net.js        salas, sincronização de telas e controles remotos
+src/transport.js  transportes: WebRTC via PeerJS (padrão) ou WebSocket
+src/config.js     configuração do modo online (somente valores públicos)
+vendor/           biblioteca PeerJS
 src/netgame.js    snapshots do anfitrião; jogo do convidado com interpolação e predição
 src/audio.js      efeitos, música e narrador
 src/heroes.js     classes e relíquias

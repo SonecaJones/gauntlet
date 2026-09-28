@@ -1,16 +1,12 @@
 import { ClientGame, levelMsg, snapshot, makeCmd } from './netgame.js';
 import { TitleScreen, SelectScreen, PlayScreen, IntermissionScreen, GameOverScreen } from './screens.js';
 import { t } from './i18n.js';
+import { makeTransport } from './transport.js';
+import { NET_CONFIG } from './config.js';
 
 const EDGES = ['dash', 'special', 'potion', 'confirm', 'back', 'start', 'pause', 'map', 'left', 'right', 'up', 'down'];
 const SNAP_EVERY = 0.05;
 const STATE_EVERY = 0.1;
-
-export function serverUrl() {
-  const q = new URLSearchParams(location.search).get('server');
-  if (q) return q;
-  return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-}
 
 // Merges every local device into one controller (a guest plays one hero).
 function mergeLocal(C, prevId) {
@@ -34,8 +30,9 @@ function mergeLocal(C, prevId) {
 export class Net {
   constructor(app) {
     this.app = app;
-    this.ws = null;
+    this.tr = makeTransport(this);
     this.role = null;
+    this.lastRx = performance.now();
     this.code = null;
     this.myId = null;
     this.status = 'connecting';
@@ -50,45 +47,30 @@ export class Net {
 
   get myCtrl() { return 'net' + this.myId; }
 
-  connect() {
-    return new Promise((resolve, reject) => {
-      let ws;
-      try { ws = new WebSocket(serverUrl()); } catch (e) { reject(e); return; }
-      this.ws = ws;
-      let opened = false;
-      ws.onopen = () => { opened = true; resolve(); };
-      ws.onerror = () => { if (!opened) reject(new Error('connect')); };
-      ws.onclose = () => { if (opened) this.lost(); };
-      ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; } this.onMsg(m); };
-    });
-  }
-
   async host() {
     this.role = 'host';
-    await this.connect();
-    this.send({ t: 'create' });
+    await this.tr.host();
   }
 
   async join(code) {
     this.role = 'client';
-    await this.connect();
-    this.send({ t: 'join', code });
+    await this.tr.join(code);
   }
 
-  send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
-  broadcast(d) { this.send({ t: 'to', d }); }
-  sendTo(id, d) { this.send({ t: 'to', id, d }); }
-  up(d) { this.send({ t: 'up', d }); }
+  broadcast(d) { this.tr.broadcast(d); }
+  sendTo(id, d) { this.tr.sendTo(id, d); }
+  up(d) { this.tr.up(d); }
 
   close() {
     this.closed = true;
-    try { this.ws?.close(); } catch { /* already closed */ }
+    this.tr.close();
     if (this.app.net === this) this.app.net = null;
   }
 
   lost() {
     if (this.closed) return;
     this.closed = true;
+    this.tr.close();
     if (this.app.net === this) this.app.net = null;
     if (this.app.screen instanceof GameOverScreen) return;
     this.app.setScreen(new TitleScreen(this.app, t(this.role === 'client' ? 'host_left' : 'conn_lost')));
@@ -99,8 +81,8 @@ export class Net {
     u.search = '';
     u.hash = '';
     u.searchParams.set('sala', this.code);
-    const srv = new URLSearchParams(location.search).get('server');
-    if (srv) u.searchParams.set('server', srv);
+    const q = new URLSearchParams(location.search);
+    for (const k of ['server', 'transport', 'peer']) if (q.get(k)) u.searchParams.set(k, q.get(k));
     return u.toString();
   }
 
@@ -109,11 +91,11 @@ export class Net {
     const app = this.app;
     switch (m.t) {
       case 'created': this.code = m.code; this.myId = 0; this.status = 'ready'; return;
-      case 'joined': this.code = m.code; this.myId = m.id; this.status = 'ready'; return;
+      case 'joined': this.code = m.code; this.myId = m.id; this.status = 'ready'; this.lastRx = performance.now(); return;
       case 'error':
         this.status = 'error';
         this.closed = true;
-        this.ws?.close();
+        this.tr.close();
         if (app.net === this) app.net = null;
         this.onError?.(t(m.code));
         return;
@@ -127,12 +109,12 @@ export class Net {
       }
       case 'from': this.fromPeer(m.id, m.d); return;
       // guest
-      case 'msg': this.fromHost(m.d); return;
+      case 'msg': this.lastRx = performance.now(); this.fromHost(m.d); return;
     }
   }
 
   blankRemote() {
-    const r = { move: { x: 0, y: 0 }, aim: null, fire: false, fireFacing: false, edges: {} };
+    const r = { move: { x: 0, y: 0 }, aim: null, fire: false, fireFacing: false, edges: {}, seen: performance.now() };
     return r;
   }
 
@@ -142,6 +124,7 @@ export class Net {
     if (d.k !== 'in') return;
     const r = this.remote.get(id);
     if (!r) return;
+    r.seen = performance.now();
     r.move = { x: +d.mx || 0, y: +d.my || 0 };
     r.aim = d.ax != null ? { x: +d.ax, y: +d.ay } : null;
     r.fire = !!d.f;
@@ -214,14 +197,17 @@ export class Net {
 
   afterUpdate(dt) {
     const s = this.app.screen;
+    const now = performance.now(), limit = NET_CONFIG.timeoutSec * 1000;
     if (this.role === 'client') {
       if (this.status !== 'ready') return;
+      if (now - this.lastRx > limit) { this.lost(); return; }
       let cmd;
       if (s instanceof PlayScreen && s.game.isClient) cmd = s.game.lastCmd || makeCmd({ move: { x: 0, y: 0 } }, null);
       else cmd = makeCmd(this.local, null);
       this.up(cmd);
       return;
     }
+    for (const [id, r] of this.remote) if (now - r.seen > limit) this.tr.kick(id);
     this.sendT -= dt;
     this.stateT -= dt;
     if (s instanceof PlayScreen) {
