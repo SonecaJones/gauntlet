@@ -17,24 +17,40 @@ class App {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     const defLang = (navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en';
-    this.settings = { music: true, sfx: true, voice: true, shake: true, lang: defLang, ...load(SETTINGS_KEY, {}) };
+    this.settings = { music: true, sfx: true, voice: true, shake: true, autoAim: true, lang: defLang, ...load(SETTINGS_KEY, {}) };
     setLang(this.settings.lang);
     this.scores = load(SCORES_KEY, []);
     if (!Array.isArray(this.scores)) this.scores = [];
     this.input = new Input(canvas);
     this.audio = new AudioSys(this.settings);
     this.input.onGesture = () => this.audio.unlock();
+    // iOS only resumes audio from touchend/click, and pinch-zooms unless told not to.
+    for (const ev of ['touchend', 'click']) window.addEventListener(ev, () => this.audio.unlock(), { passive: true });
+    document.addEventListener('gesturestart', e => e.preventDefault());
     this.net = null;
+    this.wakeLock = null;
+
+    this.safeProbe = document.createElement('div');
+    this.safeProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);';
+    document.body.append(this.safeProbe);
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
+    window.visualViewport?.addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && !this.net && this.screen instanceof PlayScreen) this.screen.pause();
+      if (!document.hidden && this.screen instanceof PlayScreen) this.keepAwake(true);
     });
-    const room = new URLSearchParams(location.search).get('sala') || new URLSearchParams(location.search).get('room');
+    const q = new URLSearchParams(location.search);
+    const room = q.get('sala') || q.get('room');
     this.screen = room ? new JoinScreen(this, null, room.toUpperCase().slice(0, 4)) : new TitleScreen(this);
     this.last = performance.now();
     requestAnimationFrame(ts => this.frame(ts));
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* not available here */ });
+    }
   }
   saveSettings() { save(SETTINGS_KEY, this.settings); }
   saveScores() { save(SCORES_KEY, this.scores); }
@@ -42,19 +58,50 @@ class App {
     this.screen?.leave?.();
     this.screen = s;
     if (s instanceof TitleScreen && this.net) this.net.close();
+    this.keepAwake(s instanceof PlayScreen);
     this.net?.onScreen(s);
   }
+  // Keep the phone screen on while playing.
+  async keepAwake(on) {
+    try {
+      if (on && !this.wakeLock && navigator.wakeLock) {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+        this.wakeLock.addEventListener('release', () => { this.wakeLock = null; });
+      } else if (!on && this.wakeLock) {
+        await this.wakeLock.release();
+        this.wakeLock = null;
+      }
+    } catch { /* not allowed */ }
+  }
+  get canFullscreen() { return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled); }
+  get isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  toggleFullscreen() {
+    try {
+      if (this.isFullscreen) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else {
+        const el = document.documentElement;
+        const p = (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el, { navigationUI: 'hide' });
+        p?.catch?.(() => {});
+      }
+    } catch { /* unsupported */ }
+  }
   resize() {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.isTouch ? 1.75 : 2);
     this.vw = window.innerWidth;
     this.vh = window.innerHeight;
     this.canvas.width = Math.round(this.vw * this.dpr);
     this.canvas.height = Math.round(this.vh * this.dpr);
+    const cs = getComputedStyle(this.safeProbe);
+    this.safe = {
+      t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0,
+      b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0,
+    };
   }
   frame(ts) {
     const dt = Math.min(0.05, Math.max(0, (ts - this.last) / 1000));
     this.last = ts;
-    this.input.poll();
+    const C = this.input.poll();
+    if (C.touch) C.touch.autoAim = this.settings.autoAim;
     this.net?.beforeUpdate();
     this.screen.update(dt);
     this.net?.afterUpdate(dt);

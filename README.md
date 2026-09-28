@@ -11,6 +11,25 @@ npm start            # servidor sem dependências (páginas + salas online)
 
 Qualquer servidor estático funciona (`npx serve`, `python3 -m http.server`...). Abrir o `index.html` direto do disco não funciona porque o jogo usa módulos ES.
 
+## Celular
+
+- Controles de toque: joystick esquerdo move e o herói **mira e atira sozinho** no inimigo mais próximo à vista (dá para desligar na pausa ou mirar manualmente com o joystick direito). Botões » esquiva, ★ especial e ⚗ poção no canto direito.
+- Funciona em paisagem e retrato, respeita notch e bordas seguras, mantém a tela acesa durante o jogo e tem botão de tela cheia (Android).
+- É um **PWA**: no celular, use "Adicionar à tela inicial" para instalar como app, em tela cheia e com funcionamento offline.
+
+## Publicar no Firebase Hosting
+
+Não há build: os arquivos do repositório já são o site.
+
+```bash
+npm i -g firebase-tools
+firebase login
+firebase use --add        # escolha o projeto
+firebase deploy --only hosting
+```
+
+O `firebase.json` já está configurado (publica a raiz, ignora `server.js`, `README.md` etc.). O modo local funciona por completo no Hosting. O modo online precisa do servidor de salas (veja abaixo), que o Hosting não executa.
+
 ## Multiplayer online
 
 1. Rode o servidor do jogo (`npm start`) numa máquina acessível por todos, ou faça deploy dele em qualquer serviço Node (Render, Fly.io, Railway...). Ele usa a variável `PORT` e não tem dependências.

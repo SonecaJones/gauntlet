@@ -339,6 +339,12 @@ export class Game {
       [ax, ay] = norm(c.aim.x, c.aim.y);
       firing = c.fire;
     }
+    // Touch players can let the hero aim and fire at the nearest visible threat.
+    if (!ax && !ay && c.autoAim) {
+      p.autoT = (p.autoT || 0) - dt;
+      if (p.autoT <= 0 || (p.autoTarget && p.autoTarget.dead)) { p.autoT = 0.12; p.autoTarget = this.findTarget(p); }
+      if (p.autoTarget) { [ax, ay] = norm(p.autoTarget.x - p.x, p.autoTarget.y - p.y); firing = true; }
+    } else p.autoTarget = null;
     const [mx, my, ml] = norm(c.move.x, c.move.y);
     const mag = Math.min(1, ml);
     p.moving = mag > 0.1;
@@ -433,6 +439,25 @@ export class Game {
     else if (p.hp < 100 && p.warn < 2) { p.warn = 2; this.say(t('about_to_die', { hero: name }), true); }
     else if (p.hp > 300) p.warn = 0;
     if (p.hp <= 0) this.killPlayer(p);
+  }
+
+  findTarget(p) {
+    const R2 = 300 * 300, cands = [];
+    this.queryEnemies(p.x, p.y, 300, e => {
+      if (e.type === 'death' || e.invis) return;
+      const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+      if (d < R2) cands.push([d, e]);
+    });
+    for (const g of this.generators) {
+      const d = (g.x - p.x) ** 2 + (g.y - p.y) ** 2;
+      if (d < R2) cands.push([d * 1.5, g]);
+    }
+    cands.sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < Math.min(4, cands.length); i++) {
+      const o = cands[i][1];
+      if (this.los(p.x, p.y, o.x, o.y)) return o;
+    }
+    return null;
   }
 
   movePlayer(p, dx, dy) {
@@ -1056,6 +1081,21 @@ export class Game {
       } else R.drawEnemy(ctx, a, time);
     }
 
+    for (const p of this.players) {
+      const tg = p.autoTarget;
+      if (!p.alive || !tg || tg.dead) continue;
+      ctx.save();
+      ctx.translate(tg.x, tg.y);
+      ctx.rotate(time * 3);
+      ctx.strokeStyle = p.hero.light;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.beginPath(); ctx.arc(0, 0, 17, -0.4, 0.4); ctx.stroke();
+      }
+      ctx.restore();
+    }
     for (const pr of this.projectiles) if (vis(pr)) R.drawProjectile(ctx, pr, time);
     for (const l of this.lobs) R.drawLob(ctx, l);
     for (const p of this.particles) {

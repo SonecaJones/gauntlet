@@ -98,68 +98,90 @@ export class TitleScreen {
     });
   }
   draw(ctx) {
-    const { vw, vh } = this.app;
+    const app = this.app, { vw, vh } = app;
+    const sf = app.safe;
     this.buttons = [];
-    background(ctx, this.app, this.embers);
-    const size = Math.min(vw * 0.13, 110);
-    const ty = vh * 0.1;
+    background(ctx, app, this.embers);
+    const short = vh < 520;
+    const size = Math.min(vw * 0.13, 110, vh * (short ? 0.15 : 0.13));
+    let y = Math.max(sf.t + (short ? 10 : 0), vh * (short ? 0.03 : 0.08));
     ctx.save();
     ctx.shadowColor = 'rgba(255,140,40,0.7)';
     ctx.shadowBlur = 30;
     ctx.font = `900 ${size}px ${SERIF}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    const g = ctx.createLinearGradient(0, ty, 0, ty + size);
+    const g = ctx.createLinearGradient(0, y, 0, y + size);
     g.addColorStop(0, '#fff2b0');
     g.addColorStop(0.5, '#ffb030');
     g.addColorStop(1, '#a04010');
     ctx.fillStyle = g;
-    ctx.fillText('GAUNTLET', vw / 2, ty);
+    ctx.fillText('GAUNTLET', vw / 2, y);
     ctx.restore();
-    txt(ctx, t('subtitle'), vw / 2, ty + size * 1.1, Math.min(22, vw / 26), '#ffd9a0', 'center');
-    txt(ctx, t('tagline'), vw / 2, ty + size * 1.1 + 34, Math.min(10, vw / 60), '#b8a8d0', 'center');
+    y += size * 1.08;
+    const subSize = Math.min(22, vw / 26, vh / 26);
+    txt(ctx, t('subtitle'), vw / 2, y, subSize, '#ffd9a0', 'center');
+    y += subSize + 12;
+    if (!short) { txt(ctx, t('tagline'), vw / 2, y, Math.min(10, vw / 60), '#b8a8d0', 'center'); y += 22; }
 
-    const hs = Math.min(2.6, vw / 300, vh / 280);
-    const baseY = vh * 0.47;
-    HERO_ORDER.forEach((k, i) => {
-      const x = vw / 2 + (i - 1.5) * 60 * hs;
-      ctx.save();
-      ctx.translate(x, baseY);
-      ctx.scale(hs, hs);
-      drawHero(ctx, fakeHero(k, 0, 0, this.t + i * 0.3), this.t);
-      ctx.restore();
-    });
-
-    // menu
-    const mw = Math.min(340, vw - 40), mh = 36;
-    let my = vh * 0.58;
-    MENU.forEach((key, i) => {
-      const sel = i === this.sel;
-      const x = (vw - mw) / 2;
-      panel(ctx, x, my, mw, mh, sel ? 'rgba(70,40,20,0.92)' : 'rgba(16,10,28,0.8)', sel ? '#ffd35a' : 'rgba(255,255,255,0.15)', 8);
-      txt(ctx, (sel ? '▶ ' : '') + t(key), vw / 2, my + 13, Math.min(11, vw / 34), sel ? '#ffe9a0' : '#ddd', 'center');
-      hit(this.buttons, x, my, mw, mh, src => { this.sel = i; this.activate(i, src); });
-      my += mh + 8;
-    });
-    if (this.message) {
-      for (const l of wrap(ctx, this.message, vw - 40, 8)) { txt(ctx, l, vw / 2, my + 4, 8, '#ff8a6a', 'center'); my += 14; }
+    // hero line-up (left of the menu on short landscape screens)
+    const menuW = Math.min(340, vw - 40);
+    const side = short && vw > 640;
+    const hs = side ? Math.min(2.2, vh / 200) : Math.min(2.6, vw / 300, vh / 300);
+    if (!short || side) {
+      const cx = side ? (vw - menuW - Math.max(24, sf.r + 12) + sf.l) / 2 : vw / 2;
+      const baseY = side ? y + 60 * hs * 0.5 + 30 : y + 34 * hs;
+      const spread = side ? 30 : 60;
+      HERO_ORDER.forEach((k, i) => {
+        const x = cx + (i - 1.5) * spread * hs;
+        ctx.save();
+        ctx.translate(side ? x : x, side ? baseY + (i % 2) * 18 * hs : baseY);
+        ctx.scale(hs, hs);
+        drawHero(ctx, fakeHero(k, 0, 0, this.t + i * 0.3), this.t);
+        ctx.restore();
+      });
+      if (!side) y = baseY + 26 * hs;
     }
 
-    const lines = [t('ctrl_kb'), t('ctrl_pad'), t('ctrl_touch')];
-    let y = Math.max(my + 20, vh - 56);
-    for (const l of lines) for (const w of wrap(ctx, l, vw - 40, 6)) { txt(ctx, w, vw / 2, y, 6, '#9a8ab8', 'center'); y += 11; }
+    // menu
+    const mh = short ? 32 : 36;
+    let my = y + 6;
+    const mx = side ? vw - menuW - Math.max(24, sf.r + 12) : (vw - menuW) / 2;
+    MENU.forEach((key, i) => {
+      const sel = i === this.sel;
+      panel(ctx, mx, my, menuW, mh, sel ? 'rgba(70,40,20,0.92)' : 'rgba(16,10,28,0.8)', sel ? '#ffd35a' : 'rgba(255,255,255,0.15)', 8);
+      txt(ctx, (sel ? '▶ ' : '') + t(key), mx + menuW / 2, my + mh / 2 - 5, Math.min(11, vw / 34), sel ? '#ffe9a0' : '#ddd', 'center');
+      hit(this.buttons, mx, my, menuW, mh, src => { this.sel = i; this.activate(i, src); });
+      my += mh + 8;
+    });
+    const msgs = [];
+    if (this.message) msgs.push([this.message, '#ff8a6a']);
+    if (app.isTouch && vh > vw * 1.15) msgs.push([t('rotate_hint'), '#7ad0ff']);
+    for (const [m, c] of msgs) for (const l of wrap(ctx, m, menuW, 8)) { txt(ctx, l, mx + menuW / 2, my + 2, 8, c, 'center'); my += 14; }
 
-    const best = this.app.scores[0];
-    if (best) txt(ctx, t('best', { n: best.score }), vw - 14, 14, 8, '#ffd35a', 'right');
+    const lines = app.isTouch ? [t('ctrl_touch')] : [t('ctrl_kb'), t('ctrl_pad')];
+    const wrapped = lines.flatMap(l => wrap(ctx, l, vw - 40, 6));
+    let cy = Math.max(my + 10, vh - sf.b - 12 - wrapped.length * 11);
+    if (cy + wrapped.length * 11 <= vh) for (const w of wrapped) { txt(ctx, w, vw / 2, cy, 6, '#9a8ab8', 'center'); cy += 11; }
+
+    const best = app.scores[0];
+    if (best) txt(ctx, t('best', { n: best.score }), vw - 14 - sf.r, 14 + sf.t, 8, '#ffd35a', 'right');
 
     const label = getLang() === 'pt' ? 'PT | en' : 'pt | EN';
-    panel(ctx, 10, 8, 84, 26);
-    txt(ctx, label, 52, 16, 8, '#fff', 'center');
-    hit(this.buttons, 10, 8, 84, 26, () => {
+    const lx = 10 + sf.l, ly = 8 + sf.t;
+    panel(ctx, lx, ly, 84, 26);
+    txt(ctx, label, lx + 42, ly + 8, 8, '#fff', 'center');
+    hit(this.buttons, lx, ly, 84, 26, () => {
       const nl = getLang() === 'pt' ? 'en' : 'pt';
-      setLang(nl); this.app.settings.lang = nl; this.app.saveSettings();
-      this.app.audio.play('select');
+      setLang(nl); app.settings.lang = nl; app.saveSettings();
+      app.audio.play('select');
     });
+    if (app.isTouch && app.canFullscreen) {
+      const fx = lx + 94;
+      panel(ctx, fx, ly, 40, 26);
+      txt(ctx, app.isFullscreen ? '⤡' : '⤢', fx + 20, ly + 5, 14, '#fff', 'center', 'sans-serif');
+      hit(this.buttons, fx, ly, 40, 26, () => app.toggleFullscreen());
+    }
   }
 }
 
@@ -172,7 +194,7 @@ export class JoinScreen {
     this.buttons = [];
     this.status = '';
     const box = (this.box = document.createElement('div'));
-    box.style.cssText = 'position:fixed;left:50%;top:48%;transform:translate(-50%,-50%);display:flex;gap:8px;z-index:5;';
+    box.style.cssText = 'position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);display:flex;gap:8px;z-index:5;';
     const input = (this.inputEl = document.createElement('input'));
     input.id = 'room-code';
     input.maxLength = 4;
@@ -223,9 +245,9 @@ export class JoinScreen {
     const { vw, vh } = this.app;
     this.buttons = [];
     background(ctx, this.app, this.embers);
-    txt(ctx, t('menu_join'), vw / 2, vh * 0.2, Math.min(20, vw / 26), '#ffd35a', 'center');
-    txt(ctx, t('enter_code'), vw / 2, vh * 0.2 + 40, 9, '#cfc0e8', 'center');
-    let y = vh * 0.6;
+    txt(ctx, t('menu_join'), vw / 2, vh * 0.1, Math.min(20, vw / 26), '#ffd35a', 'center');
+    txt(ctx, t('enter_code'), vw / 2, vh * 0.1 + 36, 9, '#cfc0e8', 'center');
+    let y = vh * 0.38 + 50;
     for (const l of wrap(ctx, this.status, vw - 40, 8)) { txt(ctx, l, vw / 2, y, 8, '#7ad0ff', 'center'); y += 14; }
     panel(ctx, 10, 10, 90, 28);
     txt(ctx, '◀ ' + t('back'), 55, 19, 8, '#fff', 'center');
@@ -402,7 +424,7 @@ export class SelectScreen {
 }
 
 // ================================================================== play
-const PAUSE_ITEMS = ['resume', 'music', 'sfx', 'voice', 'shake', 'language', 'quit'];
+const PAUSE_ITEMS = ['resume', 'music', 'sfx', 'voice', 'shake', 'autoAim', 'fullscreen', 'language', 'quit'];
 
 export class PlayScreen {
   constructor(app, game) {
@@ -447,6 +469,8 @@ export class PlayScreen {
       case 'sfx': s.sfx = !s.sfx; break;
       case 'voice': s.voice = !s.voice; if (!s.voice) window.speechSynthesis?.cancel(); break;
       case 'shake': s.shake = !s.shake; break;
+      case 'autoAim': s.autoAim = !s.autoAim; break;
+      case 'fullscreen': this.app.toggleFullscreen(); break;
       case 'language': { const nl = getLang() === 'pt' ? 'en' : 'pt'; setLang(nl); s.lang = nl; break; }
       case 'quit': this.app.setScreen(new TitleScreen(this.app)); return;
     }
@@ -457,7 +481,7 @@ export class PlayScreen {
     for (const c of mine) {
       if (c.up) { this.menu = (this.menu + PAUSE_ITEMS.length - 1) % PAUSE_ITEMS.length; this.app.audio.play('select'); }
       if (c.down) { this.menu = (this.menu + 1) % PAUSE_ITEMS.length; this.app.audio.play('select'); }
-      if (c.confirm || ((c.left || c.right) && this.menu > 0 && this.menu < 6)) { this.activate(PAUSE_ITEMS[this.menu]); return; }
+      if (c.confirm || ((c.left || c.right) && this.menu > 0 && this.menu < PAUSE_ITEMS.length - 1)) { this.activate(PAUSE_ITEMS[this.menu]); return; }
       if (c.back || c.pause) { this.paused = false; return; }
     }
   }
@@ -492,12 +516,13 @@ export class PlayScreen {
 
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(0, 0, vw, vh);
-    const w = Math.min(380, vw - 30), rh = 34, h = 70 + PAUSE_ITEMS.length * rh + (game.isClient ? 20 : 0);
+    const rh = Math.min(34, (vh - 110) / PAUSE_ITEMS.length);
+    const w = Math.min(380, vw - 30), h = 70 + PAUSE_ITEMS.length * rh + (game.isClient ? 20 : 0);
     const x = (vw - w) / 2, y = (vh - h) / 2;
     panel(ctx, x, y, w, h, 'rgba(16,10,28,0.95)', '#ffd35a88', 12);
     txt(ctx, t('paused'), vw / 2, y + 18, 16, '#ffd35a', 'center');
     const s = this.app.settings;
-    const val = { music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake };
+    const val = { music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake, autoAim: s.autoAim, fullscreen: this.app.isFullscreen };
     PAUSE_ITEMS.forEach((it, i) => {
       const ry = y + 56 + i * rh;
       const sel = i === this.menu;
@@ -673,7 +698,8 @@ export class GameOverScreen {
     let y = vh * 0.08 + 150;
     txt(ctx, t('highscores'), vw / 2, y, 10, '#fff', 'center');
     y += 24;
-    this.app.scores.forEach((s, i) => {
+    const fit = Math.max(1, Math.floor((vh - y - 50) / 18));
+    this.app.scores.slice(0, fit).forEach((s, i) => {
       const col = i === this.rank ? '#7dffa0' : '#ddd';
       txt(ctx, `${i + 1}.`, lx, y, 9, col);
       txt(ctx, String(s.score), lx + 36, y, 9, col);

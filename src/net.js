@@ -24,6 +24,7 @@ function mergeLocal(C, prevId) {
     if (!out.aim && c.aim) out.aim = c.aim;
     out.fire ||= c.fire;
     out.fireFacing ||= c.fireFacing;
+    out.autoAim ||= !!c.autoAim;
     for (const e of EDGES) out[e] ||= c[e];
   }
   if (!out.aim) for (const k in C) if (C[k].aimPoint) { out.aimPoint = C[k].aimPoint; break; }
@@ -145,13 +146,14 @@ export class Net {
     r.aim = d.ax != null ? { x: +d.ax, y: +d.ay } : null;
     r.fire = !!d.f;
     r.fireFacing = !!d.ff;
+    r.autoAim = !!d.aa;
     for (const e of EDGES) if (d[e]) r.edges[e] = true;
   }
 
   // Host: expose each guest as a regular controller ('net<id>').
   inject(C) {
     for (const [id, r] of this.remote) {
-      const c = { id: 'net' + id, move: r.move, aim: r.aim, aimPoint: null, fire: r.fire, fireFacing: r.fireFacing };
+      const c = { id: 'net' + id, move: r.move, aim: r.aim, aimPoint: null, fire: r.fire, fireFacing: r.fireFacing, autoAim: r.autoAim };
       for (const e of EDGES) c[e] = !!r.edges[e];
       c.pause = false;
       c.map = false;

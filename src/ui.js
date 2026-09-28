@@ -65,14 +65,15 @@ function potionIcon(ctx, x, y) {
 // ------------------------------------------------------------------ HUD
 export function drawHud(ctx, app, game, showMap) {
   const { vw, vh } = app;
+  const sf = app.safe || { t: 0, r: 0, b: 0, l: 0 };
   const n = game.players.length;
   const touch = app.input.touchActive;
   const gap = 8;
-  const pw = Math.min(210, (vw - 24 - gap * (n - 1) - (vw > 700 ? 170 : 0)) / n);
+  const pw = Math.min(210, (vw - 24 - sf.l - sf.r - gap * (n - 1) - (vw > 700 ? 170 : touch ? 100 : 0)) / n);
   const compact = pw < 150;
   const ph = compact ? 58 : 66;
   game.players.forEach((p, i) => {
-    const x = 12 + i * (pw + gap), y = 12;
+    const x = 12 + sf.l + i * (pw + gap), y = 12 + sf.t;
     panel(ctx, x, y, pw, ph, 'rgba(12,8,22,0.72)', p.hero.color + 'aa');
     ctx.fillStyle = p.hero.color;
     ctx.fillRect(x + 1, y + 1, 4, ph - 2);
@@ -107,11 +108,13 @@ export function drawHud(ctx, app, game, showMap) {
   });
 
   // level + minimap
-  const mmScale = Math.max(1, Math.min(3, 150 / game.W));
-  const mw = game.W * mmScale, mh = game.H * mmScale;
-  const mx = vw - mw - 12, my = touch ? 62 : 30;
-  txt(ctx, t('level', { n: game.levelNum }), vw - 12, touch ? 46 : 12, 9, '#ffd35a', 'right');
-  if (vw > 480 || !touch) drawMap(ctx, game, mx, my, mmScale, 0.8);
+  const mmMax = Math.min(150, vw * 0.2, vh * 0.26);
+  const mmScale = Math.max(0.8, Math.min(3, mmMax / game.W, mmMax / game.H));
+  const mw = game.W * mmScale;
+  const right = vw - 12 - sf.r;
+  const lvY = sf.t + (touch ? 50 : 12);
+  txt(ctx, t('level', { n: game.levelNum }), right, lvY, 9, '#ffd35a', 'right');
+  if (vw > 480 && vh > 300) drawMap(ctx, game, right - mw, lvY + 18, mmScale, 0.8);
   if (showMap) {
     const s = Math.min((vw * 0.8) / game.W, (vh * 0.75) / game.H);
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -130,7 +133,8 @@ export function drawHud(ctx, app, game, showMap) {
   if (game.hint) {
     ctx.globalAlpha = Math.min(1, game.hint.t);
     const lines = wrap(ctx, game.hint.text, vw - 60, 8);
-    lines.forEach((l, i) => txt(ctx, l, vw / 2, vh - (touch ? 220 : 50) + i * 14, 8, '#e8e0ff', 'center'));
+    const hy = touch ? sf.t + 92 : vh - 50 - sf.b;
+    lines.forEach((l, i) => txt(ctx, l, vw / 2, hy + i * 14, 8, '#e8e0ff', 'center'));
     ctx.globalAlpha = 1;
   }
 
@@ -166,15 +170,18 @@ function drawMap(ctx, game, x, y, s, alpha) {
 }
 
 // ------------------------------------------------------------------ touch
+// Right-thumb cluster in the bottom-right corner, clear of notches.
 export function layoutTouch(app) {
   const { vw, vh } = app;
-  const r = Math.min(34, vw * 0.07);
+  const sf = app.safe || { t: 0, r: 0, b: 0, l: 0 };
+  const r = Math.max(28, Math.min(42, Math.min(vw, vh) * 0.085));
+  const dx = vw - sf.r - r - 22, dy = vh - sf.b - r - 22;
   app.input.touchButtons = [
-    { id: 'special', x: vw - r - 18, y: vh - r * 2 - 150, r, label: '★' },
-    { id: 'dash', x: vw - r * 3 - 30, y: vh - r * 2 - 120, r, label: '»' },
-    { id: 'potion', x: vw - r - 18, y: vh - r * 4 - 170, r: r * 0.8, label: '⚗' },
-    { id: 'pause', x: vw - 30, y: 26, r: 18, label: 'II' },
-    { id: 'map', x: vw - 76, y: 26, r: 18, label: '▦' },
+    { id: 'dash', x: dx, y: dy, r, label: '»' },
+    { id: 'special', x: dx - r * 2.5, y: dy + r * 0.15, r, label: '★' },
+    { id: 'potion', x: dx + r * 0.15, y: dy - r * 2.4, r: r * 0.8, label: '⚗' },
+    { id: 'pause', x: vw - sf.r - 30, y: sf.t + 26, r: 18, label: 'II' },
+    { id: 'map', x: vw - sf.r - 76, y: sf.t + 26, r: 18, label: '▦' },
   ];
 }
 
@@ -212,8 +219,9 @@ export function drawTouch(ctx, app, player) {
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(kx, ky, 22, 0, Math.PI * 2); ctx.fill();
   };
-  stick(inp.sticks.move, 100, app.vh - 110);
-  stick(inp.sticks.aim, app.vw * 0.62, app.vh - 110);
+  const sf = app.safe || { l: 0, b: 0 };
+  stick(inp.sticks.move, 100 + sf.l, app.vh - 110 - sf.b);
+  if (!app.settings.autoAim || inp.sticks.aim) stick(inp.sticks.aim, app.vw * 0.62, app.vh - 110 - sf.b);
   ctx.globalAlpha = 1;
   ctx.textBaseline = 'top';
 }

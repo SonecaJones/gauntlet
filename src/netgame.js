@@ -40,6 +40,7 @@ export function snapshot(g, paused) {
       p.score, p.keys, p.potions, r1(Math.max(0, p.specialCd)), r1(Math.max(0, p.dashCd)), p.hurt > 0 ? 1 : 0,
       p.spinT > 0 ? 1 : 0, p.dashT > 0 ? 1 : 0, p.chargeT > 0 ? 1 : 0, r2(p.revive), buffs(p.buffs), r2(p.mods.cd),
       Math.round(p.hero.speed * p.mods.speed * (p.buffs.speed ? 1.35 : 1)),
+      p.autoTarget && !p.autoTarget.dead ? [Math.round(p.autoTarget.x), Math.round(p.autoTarget.y)] : 0,
     ]),
     e: g.enemies.map(e => [idOf(e), ET.indexOf(e.type), e.tier, r1(e.x), r1(e.y), r2(e.face), e.flash > 0 ? 1 : 0, e.invis ? 1 : 0, e.atk > 0 ? 1 : 0, e.shootCd < 0.8 ? 1 : 0, r1(e.r)]),
     g: g.generators.map(q => [idOf(q), ET.indexOf(q.type), q.tier, q.maxTier, q.x, q.y, Math.round(q.hp), r1(q.hpPerTier), r2(q.spawnT), q.flash > 0 ? 1 : 0]),
@@ -56,6 +57,7 @@ export function makeCmd(c, aim) {
   if (aim) { cmd.ax = r2(aim[0]); cmd.ay = r2(aim[1]); }
   if (c.fire) cmd.f = 1;
   if (c.fireFacing) cmd.ff = 1;
+  if (c.autoAim) cmd.aa = 1;
   for (const k of ['dash', 'special', 'potion', 'confirm', 'back', 'start', 'left', 'right', 'up', 'down']) if (c[k]) cmd[k] = 1;
   return cmd;
 }
@@ -183,6 +185,7 @@ export class ClientGame extends Game {
       o.specialCd = L[12]; o.dashCd = L[13]; o.hurt = L[14] ? 0.15 : 0; o.spinT = L[15] ? 0.1 : 0;
       o.dashT = L[16] ? 0.1 : 0; o.chargeT = L[17] ? 0.1 : 0; o.revive = L[18]; o.buffs = L[19];
       o.mods = { cd: L[20] }; o.spd = L[21]; o.r = 11;
+      o.autoTarget = L[22] ? { x: L[22][0], y: L[22][1] } : null;
       if (o.moving) o.walk += dt;
       if ((o.dashT > 0 || o.chargeT > 0) && o.alive) {
         this.particles.push({ x: o.x + (Math.random() - 0.5) * 8, y: o.y + (Math.random() - 0.5) * 12, vx: 0, vy: 0, life: 0.25, max: 0.25, color: o.hero.light, size: 5, glow: true });
@@ -230,13 +233,14 @@ export class ClientGame extends Game {
     let vx, vy;
     if (me.pdT > 0) { me.pdT -= dt; vx = me.pdX * 520; vy = me.pdY * 520; }
     else {
-      const firing = cmd.f || cmd.ff;
+      const firing = cmd.f || cmd.ff || (cmd.aa && me.autoTarget);
       const sp = me.spd * (firing ? 0.82 : 1) * mag;
       vx = mx * sp; vy = my * sp;
     }
     if (vx || vy) this.moveEntity(me, vx * dt, vy * dt);
     me.moving = mag > 0.1;
     if (cmd.ax != null) me.facing = Math.atan2(cmd.ay, cmd.ax);
+    else if (me.autoTarget) me.facing = Math.atan2(me.autoTarget.y - me.y, me.autoTarget.x - me.x);
     else if (me.moving) me.facing = Math.atan2(my, mx);
     // correction: the host is the authority
     const ex = sx - me.x, ey = sy - me.y, err = Math.hypot(ex, ey);

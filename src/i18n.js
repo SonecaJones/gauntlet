@@ -5,7 +5,7 @@ const STR = {
     press_start: 'Pressione ENTER / START ou toque na tela',
     ctrl_kb: 'Teclado: WASD move • Mouse ou setas miram e atiram • Espaço esquiva • E especial • Q poção • Tab mapa • Esc pausa',
     ctrl_pad: 'Controle: analógico esq. move • analógico dir. mira e atira • A esquiva • RB especial • Y poção • Select mapa',
-    ctrl_touch: 'Toque: joystick esquerdo move • joystick direito mira e atira',
+    ctrl_touch: 'Toque: joystick esquerdo move • o herói mira e atira sozinho (ou use o joystick direito) • » esquiva • ★ especial • ⚗ poção',
     best: 'Recorde: {n}',
     select_title: 'ESCOLHA SEU HERÓI',
     join_hint: 'ENTER / (A) / toque para entrar • ◀ ▶ escolher • confirmar = pronto • até 4 jogadores',
@@ -71,6 +71,7 @@ const STR = {
     device_net: 'Online', press_join: 'Você está assistindo. Pressione ENTER / START para entrar na partida',
     host_paused: 'PAUSADO PELO ANFITRIÃO', waiting_host: 'Conectado! Aguardando o anfitrião...',
     online_pause_note: 'Partida online: o jogo continua enquanto este menu está aberto',
+    rotate_hint: 'Dica: gire o celular para jogar melhor', autoAim: 'Mira automática (toque)', fullscreen: 'Tela cheia',
     you: 'VOCÊ', waiting_relic: 'Aguardando {hero} escolher uma relíquia',
   },
   en: {
@@ -79,7 +80,7 @@ const STR = {
     press_start: 'Press ENTER / START or tap the screen',
     ctrl_kb: 'Keyboard: WASD move • Mouse or arrows aim & fire • Space dodge • E special • Q potion • Tab map • Esc pause',
     ctrl_pad: 'Gamepad: left stick move • right stick aim & fire • A dodge • RB special • Y potion • Select map',
-    ctrl_touch: 'Touch: left joystick moves • right joystick aims & fires',
+    ctrl_touch: 'Touch: left joystick moves • your hero aims and fires on its own (or use the right joystick) • » dodge • ★ special • ⚗ potion',
     best: 'Best: {n}',
     select_title: 'CHOOSE YOUR HERO',
     join_hint: 'ENTER / (A) / tap to join • ◀ ▶ choose • confirm = ready • up to 4 players',
@@ -145,6 +146,7 @@ const STR = {
     device_net: 'Online', press_join: 'You are spectating. Press ENTER / START to join the game',
     host_paused: 'PAUSED BY HOST', waiting_host: 'Connected! Waiting for the host...',
     online_pause_note: 'Online game: play continues while this menu is open',
+    rotate_hint: 'Tip: turn your phone sideways to play', autoAim: 'Auto-aim (touch)', fullscreen: 'Fullscreen',
     you: 'YOU', waiting_relic: 'Waiting for {hero} to choose a relic',
   },
 };
