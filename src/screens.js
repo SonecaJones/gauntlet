@@ -1,5 +1,6 @@
 import { HEROES, HERO_ORDER, PERKS } from './heroes.js';
 import { Game } from './game.js';
+import { Net } from './net.js';
 import { drawHero } from './render.js';
 import { txt, wrap, panel, hit, handleClicks, drawHud, layoutTouch, drawTouch, playerColor, PIX, SERIF } from './ui.js';
 import { t, heroName, deviceName, setLang, getLang } from './i18n.js';
@@ -37,11 +38,31 @@ const fakeHero = (key, x, y, time, facing = Math.PI / 2, moving = true) => ({
   hero: HEROES[key], x, y, facing, moving, walk: time, hurt: 0, buffs: {}, spinT: 0,
 });
 
+// Room code badge shown in online lobbies.
+function roomBadge(ctx, app) {
+  const net = app.net;
+  if (!net) return;
+  const { vw } = app;
+  const w = Math.min(260, vw - 130);
+  panel(ctx, vw - w - 10, 8, w, 44, 'rgba(20,12,34,0.9)', '#7ad0ff88');
+  if (net.status !== 'ready') { txt(ctx, t(net.role === 'host' ? 'creating' : 'connecting'), vw - w / 2 - 10, 24, 8, '#7ad0ff', 'center'); return; }
+  txt(ctx, t('room', { code: net.code }), vw - w / 2 - 10, 15, 12, '#7ad0ff', 'center');
+  if (net.role === 'host') {
+    const url = net.inviteUrl();
+    const lines = wrap(ctx, url, w - 12, 5);
+    txt(ctx, lines[0] + (lines.length > 1 ? '…' : ''), vw - w / 2 - 10, 35, 5, '#b8c8e0', 'center');
+  } else txt(ctx, t('online_guest'), vw - w / 2 - 10, 35, 6, '#b8c8e0', 'center');
+}
+
 // ================================================================== title
+const MENU = ['menu_local', 'menu_host', 'menu_join'];
+
 export class TitleScreen {
-  constructor(app) {
+  constructor(app, message = null) {
     this.app = app;
     this.t = 0;
+    this.sel = 0;
+    this.message = message;
     this.embers = [];
     this.buttons = [];
     app.audio.startMusic('title');
@@ -55,22 +76,33 @@ export class TitleScreen {
     if (this.done) return;
     for (const id in inp.controllers) {
       const c = inp.controllers[id];
-      if (c.confirm || c.start) { this.go(id); return; }
+      if (c.up) { this.sel = (this.sel + MENU.length - 1) % MENU.length; this.app.audio.play('select'); }
+      if (c.down) { this.sel = (this.sel + 1) % MENU.length; this.app.audio.play('select'); }
+      if (c.confirm || c.start) { this.activate(this.sel, id); return; }
     }
   }
-  go(id) {
+  activate(i, id) {
     if (this.done) return;
     this.done = true;
-    this.app.audio.unlock();
-    this.app.audio.play('confirm');
-    this.app.setScreen(new SelectScreen(this.app, id));
+    const app = this.app;
+    app.audio.unlock();
+    app.audio.play('confirm');
+    if (i === 0) { app.setScreen(new SelectScreen(app, id)); return; }
+    if (i === 2) { app.setScreen(new JoinScreen(app, id)); return; }
+    const net = new Net(app);
+    app.net = net;
+    app.setScreen(new SelectScreen(app, id, 'host'));
+    net.host().catch(() => {
+      if (app.net === net) app.net = null;
+      app.setScreen(new TitleScreen(app, t('net_fail')));
+    });
   }
   draw(ctx) {
     const { vw, vh } = this.app;
     this.buttons = [];
     background(ctx, this.app, this.embers);
-    const size = Math.min(vw * 0.13, 120);
-    const ty = vh * 0.16;
+    const size = Math.min(vw * 0.13, 110);
+    const ty = vh * 0.1;
     ctx.save();
     ctx.shadowColor = 'rgba(255,140,40,0.7)';
     ctx.shadowBlur = 30;
@@ -87,9 +119,8 @@ export class TitleScreen {
     txt(ctx, t('subtitle'), vw / 2, ty + size * 1.1, Math.min(22, vw / 26), '#ffd9a0', 'center');
     txt(ctx, t('tagline'), vw / 2, ty + size * 1.1 + 34, Math.min(10, vw / 60), '#b8a8d0', 'center');
 
-    // hero line-up
-    const hs = Math.min(3.2, vw / 260);
-    const baseY = vh * 0.58;
+    const hs = Math.min(2.6, vw / 300, vh / 280);
+    const baseY = vh * 0.47;
     HERO_ORDER.forEach((k, i) => {
       const x = vw / 2 + (i - 1.5) * 60 * hs;
       ctx.save();
@@ -97,19 +128,30 @@ export class TitleScreen {
       ctx.scale(hs, hs);
       drawHero(ctx, fakeHero(k, 0, 0, this.t + i * 0.3), this.t);
       ctx.restore();
-      txt(ctx, heroName(k), x, baseY + 18 * hs, Math.max(6, Math.min(9, vw / 90)), HEROES[k].light, 'center');
     });
 
-    if (Math.floor(this.t * 2) % 2 === 0) txt(ctx, t('press_start'), vw / 2, vh * 0.72, Math.min(12, vw / 45), '#ffffff', 'center');
+    // menu
+    const mw = Math.min(340, vw - 40), mh = 36;
+    let my = vh * 0.58;
+    MENU.forEach((key, i) => {
+      const sel = i === this.sel;
+      const x = (vw - mw) / 2;
+      panel(ctx, x, my, mw, mh, sel ? 'rgba(70,40,20,0.92)' : 'rgba(16,10,28,0.8)', sel ? '#ffd35a' : 'rgba(255,255,255,0.15)', 8);
+      txt(ctx, (sel ? '▶ ' : '') + t(key), vw / 2, my + 13, Math.min(11, vw / 34), sel ? '#ffe9a0' : '#ddd', 'center');
+      hit(this.buttons, x, my, mw, mh, src => { this.sel = i; this.activate(i, src); });
+      my += mh + 8;
+    });
+    if (this.message) {
+      for (const l of wrap(ctx, this.message, vw - 40, 8)) { txt(ctx, l, vw / 2, my + 4, 8, '#ff8a6a', 'center'); my += 14; }
+    }
 
     const lines = [t('ctrl_kb'), t('ctrl_pad'), t('ctrl_touch')];
-    let y = vh * 0.8;
-    for (const l of lines) for (const w of wrap(ctx, l, vw - 40, 7)) { txt(ctx, w, vw / 2, y, 7, '#9a8ab8', 'center'); y += 13; }
+    let y = Math.max(my + 20, vh - 56);
+    for (const l of lines) for (const w of wrap(ctx, l, vw - 40, 6)) { txt(ctx, w, vw / 2, y, 6, '#9a8ab8', 'center'); y += 11; }
 
     const best = this.app.scores[0];
     if (best) txt(ctx, t('best', { n: best.score }), vw - 14, 14, 8, '#ffd35a', 'right');
 
-    // language toggle
     const label = getLang() === 'pt' ? 'PT | en' : 'pt | EN';
     panel(ctx, 10, 8, 84, 26);
     txt(ctx, label, 52, 16, 8, '#fff', 'center');
@@ -118,20 +160,91 @@ export class TitleScreen {
       setLang(nl); this.app.settings.lang = nl; this.app.saveSettings();
       this.app.audio.play('select');
     });
-    hit(this.buttons, 0, 40, vw, vh - 40, src => this.go(src));
+  }
+}
+
+// ================================================================== join
+export class JoinScreen {
+  constructor(app, _id, code = '') {
+    this.app = app;
+    this.t = 0;
+    this.embers = [];
+    this.buttons = [];
+    this.status = '';
+    const box = (this.box = document.createElement('div'));
+    box.style.cssText = 'position:fixed;left:50%;top:48%;transform:translate(-50%,-50%);display:flex;gap:8px;z-index:5;';
+    const input = (this.inputEl = document.createElement('input'));
+    input.id = 'room-code';
+    input.maxLength = 4;
+    input.value = code;
+    input.autocomplete = 'off';
+    input.setAttribute('aria-label', t('enter_code'));
+    input.style.cssText = 'width:7ch;font:24px "Press Start 2P",monospace;text-transform:uppercase;text-align:center;padding:12px;background:#140c22;color:#ffe9a0;border:2px solid #ffd35a;border-radius:8px;outline:none;';
+    const btn = document.createElement('button');
+    btn.textContent = t('join_btn');
+    btn.style.cssText = 'font:12px "Press Start 2P",monospace;padding:0 16px;background:#ffd35a;color:#140c22;border:0;border-radius:8px;cursor:pointer;';
+    btn.onclick = () => this.submit();
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') this.submit();
+      if (e.key === 'Escape') this.back();
+    });
+    input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z]/g, ''); });
+    box.append(input, btn);
+    document.body.append(box);
+    setTimeout(() => input.focus(), 50);
+    if (code.length === 4) this.submit();
+  }
+  leave() { this.box.remove(); }
+  back() { this.app.setScreen(new TitleScreen(this.app)); }
+  submit() {
+    const code = this.inputEl.value.trim().toUpperCase();
+    if (code.length !== 4 || this.app.net) return;
+    this.status = t('connecting');
+    const net = new Net(this.app);
+    this.app.net = net;
+    net.onError = msg => { this.status = msg; };
+    net.join(code).catch(() => {
+      if (this.app.net === net) this.app.net = null;
+      this.status = t('net_fail');
+    });
+  }
+  update(dt) {
+    this.t += dt;
+    updateEmbers(this.embers, this.app, dt);
+    handleClicks(this.buttons, this.app.input.clicks);
+    const net = this.app.net;
+    if (net && net.status === 'ready') this.status = t('waiting_host');
+    for (const id in this.app.input.controllers) {
+      const c = this.app.input.controllers[id];
+      if (c.back && (id.startsWith('pad') || document.activeElement !== this.inputEl)) { this.back(); return; }
+    }
+  }
+  draw(ctx) {
+    const { vw, vh } = this.app;
+    this.buttons = [];
+    background(ctx, this.app, this.embers);
+    txt(ctx, t('menu_join'), vw / 2, vh * 0.2, Math.min(20, vw / 26), '#ffd35a', 'center');
+    txt(ctx, t('enter_code'), vw / 2, vh * 0.2 + 40, 9, '#cfc0e8', 'center');
+    let y = vh * 0.6;
+    for (const l of wrap(ctx, this.status, vw - 40, 8)) { txt(ctx, l, vw / 2, y, 8, '#7ad0ff', 'center'); y += 14; }
+    panel(ctx, 10, 10, 90, 28);
+    txt(ctx, '◀ ' + t('back'), 55, 19, 8, '#fff', 'center');
+    hit(this.buttons, 10, 10, 90, 28, () => this.back());
   }
 }
 
 // ================================================================== select
+// mode: 'local' | 'host' (online lobby owner) | 'client' (mirrors the host lobby)
 export class SelectScreen {
-  constructor(app, firstId) {
+  constructor(app, firstId, mode = 'local') {
     this.app = app;
+    this.mode = mode;
     this.t = 0;
     this.slots = [];
     this.countdown = null;
     this.buttons = [];
     this.embers = [];
-    if (firstId) this.join(firstId);
+    if (firstId && mode !== 'client') this.join(firstId);
   }
   taken(i, except) { return this.slots.some(s => s !== except && s.ready && s.cursor === i); }
   freeFrom(i, dir, slot) {
@@ -157,34 +270,46 @@ export class SelectScreen {
     for (const o of this.slots) if (o !== s && !o.ready && o.cursor === s.cursor) o.cursor = this.freeFrom(o.cursor, 1, o);
   }
   clickCard(i, src) {
+    if (this.mode === 'client') { this.app.net?.up({ k: 'click', i }); return; }
     const s = this.slots.find(x => x.ctrlId === src);
     if (!s) { this.join(src, i); return; }
     if (s.ready) { if (s.cursor !== i) { s.ready = false; s.cursor = i; } return; }
     if (s.cursor === i) this.lock(s);
     else if (!this.taken(i, s)) { s.cursor = i; this.app.audio.play('select'); }
   }
+  remoteClick(ctrlId, i) { if (typeof i === 'number' && i >= 0 && i < 4) this.clickCard(i, ctrlId); }
+  removeCtrl(ctrlId) {
+    const i = this.slots.findIndex(s => s.ctrlId === ctrlId);
+    if (i >= 0) { this.slots.splice(i, 1); this.countdown = null; }
+  }
   update(dt) {
     this.t += dt;
     updateEmbers(this.embers, this.app, dt);
     const inp = this.app.input;
     handleClicks(this.buttons, inp.clicks);
-    if (this.left) return;
+    if (this.left || this.mode === 'client') return;
     for (const id in inp.controllers) {
       const c = inp.controllers[id];
       const s = this.slots.find(x => x.ctrlId === id);
+      const local = !id.startsWith('net');
       if (!s) {
         if ((c.confirm || c.start) && this.t > 0.2) this.join(id);
-        else if (c.back && !this.slots.length) { this.back(); return; }
+        else if (c.back && local && !this.slots.some(x => !x.ctrlId.startsWith('net'))) { this.back(); return; }
         continue;
       }
       if (!s.ready) {
         if (c.left || c.up) { s.cursor = this.freeFrom((s.cursor + 3) % 4, -1, s); this.app.audio.play('select'); }
         if (c.right || c.down) { s.cursor = this.freeFrom((s.cursor + 1) % 4, 1, s); this.app.audio.play('select'); }
         if (c.confirm && this.t > 0.2) this.lock(s);
-        else if (c.back) { this.slots.splice(this.slots.indexOf(s), 1); this.app.audio.play('back'); if (!this.slots.length) { this.back(); return; } }
+        else if (c.back) {
+          this.slots.splice(this.slots.indexOf(s), 1);
+          this.app.audio.play('back');
+          if (local && !this.slots.some(x => !x.ctrlId.startsWith('net'))) { this.back(); return; }
+        }
       } else if (c.back) { s.ready = false; this.countdown = null; this.app.audio.play('back'); }
     }
-    if (this.slots.length && this.slots.every(s => s.ready)) {
+    const waitingNet = this.mode === 'host' && this.app.net?.status !== 'ready';
+    if (this.slots.length && this.slots.every(s => s.ready) && !waitingNet) {
       if (this.countdown == null) this.countdown = 1.6;
       this.countdown -= dt;
       if (this.countdown <= 0) this.start();
@@ -192,19 +317,24 @@ export class SelectScreen {
   }
   back() { this.left = true; this.app.audio.play('back'); this.app.setScreen(new TitleScreen(this.app)); }
   start() {
-    const game = new Game(this.app, this.slots.map(s => ({ ctrlId: s.ctrlId, hero: HERO_ORDER[s.cursor] })));
-    this.app.setScreen(new PlayScreen(this.app, game));
+    const app = this.app;
+    const specs = this.slots.map(s => ({ ctrlId: s.ctrlId, hero: HERO_ORDER[s.cursor] }));
+    const opts = this.mode === 'host' ? { record: true, onLevel: g => app.net?.sendLevel(g) } : {};
+    app.setScreen(new PlayScreen(app, new Game(app, specs, opts)));
   }
   draw(ctx) {
     const { vw, vh } = this.app;
+    const myCtrl = this.mode === 'client' ? this.app.net?.myCtrl : null;
     this.buttons = [];
     background(ctx, this.app, this.embers);
-    txt(ctx, t('select_title'), vw / 2, 22, Math.min(20, vw / 30), '#ffd35a', 'center');
+    const online = this.mode !== 'local';
+    txt(ctx, t('select_title'), online && vw < 900 ? 110 : vw / 2, online && vw < 900 ? 52 : 22, Math.min(20, vw / 30), '#ffd35a', online && vw < 900 ? 'left' : 'center');
     const wide = vw > vh * 1.05;
     const cols = wide ? 4 : 2, rows = wide ? 1 : 2, gap = 14;
+    const top = online ? 76 : 60;
     const cw = Math.min(250, (vw - 32 - gap * (cols - 1)) / cols);
-    const ch = Math.min(wide ? 380 : 320, (vh - 150 - gap * (rows - 1)) / rows);
-    const ox = (vw - cw * cols - gap * (cols - 1)) / 2, oy = 60 + Math.max(0, (vh - 150 - ch * rows - gap * (rows - 1)) / 2);
+    const ch = Math.min(wide ? 380 : 320, (vh - top - 90 - gap * (rows - 1)) / rows);
+    const ox = (vw - cw * cols - gap * (cols - 1)) / 2, oy = top + Math.max(0, (vh - top - 90 - ch * rows - gap * (rows - 1)) / 2);
     HERO_ORDER.forEach((k, i) => {
       const H = HEROES[k];
       const x = ox + (i % cols) * (cw + gap), y = oy + Math.floor(i / cols) * (ch + gap);
@@ -242,12 +372,11 @@ export class SelectScreen {
         if (ty > y + ch - 14) break;
         txt(ctx, l, x + 10, ty, fs - 2, '#d8d0e8'); ty += fs + 3;
       }
-      // player chips
       here.forEach((s, j) => {
         const pi = this.slots.indexOf(s);
         const cx = x + 8 + j * 46;
-        panel(ctx, cx, y + 8, 42, 18, playerColor(pi), null, 5);
-        txt(ctx, `P${pi + 1}`, cx + 21, y + 13, 8, '#111', 'center', PIX, false);
+        panel(ctx, cx, y + 8, 42, 18, playerColor(pi), s.ctrlId === myCtrl ? '#fff' : null, 5);
+        txt(ctx, s.ctrlId === myCtrl ? t('you') : `P${pi + 1}`, cx + 21, y + 13, s.ctrlId === myCtrl ? 6 : 8, '#111', 'center', PIX, false);
       });
       if (lockedBy) {
         ctx.fillStyle = playerColor(this.slots.indexOf(lockedBy));
@@ -255,17 +384,20 @@ export class SelectScreen {
         txt(ctx, t('ready'), x + cw / 2, y + ch - 19, 10, '#111', 'center', PIX, false);
       }
     });
-    // footer
     let fy = vh - 70;
     const devs = this.slots.map((s, i) => `P${i + 1}: ${deviceName(s.ctrlId)}`).join('   ');
-    if (devs) { txt(ctx, devs, vw / 2, fy, 8, '#fff', 'center'); }
-    fy += 18;
-    for (const l of wrap(ctx, this.countdown != null ? t('starting', { n: Math.ceil(this.countdown) }) : t('join_hint'), vw - 30, 8)) {
+    if (devs) for (const l of wrap(ctx, devs, vw - 30, 8)) { txt(ctx, l, vw / 2, fy, 8, '#fff', 'center'); fy += 14; }
+    fy += 4;
+    let hint = t('join_hint');
+    if (this.countdown != null) hint = t('starting', { n: Math.ceil(this.countdown) });
+    else if (this.mode === 'client' && !this.slots.some(s => s.ctrlId === myCtrl)) hint = t('join_hint');
+    for (const l of wrap(ctx, hint, vw - 30, 8)) {
       txt(ctx, l, vw / 2, fy, 8, this.countdown != null ? '#ffd35a' : '#b8a8d0', 'center'); fy += 14;
     }
     panel(ctx, 10, 10, 90, 28);
     txt(ctx, '◀ ' + t('back'), 55, 19, 8, '#fff', 'center');
     hit(this.buttons, 10, 10, 90, 28, () => this.back());
+    roomBadge(ctx, this.app);
   }
 }
 
@@ -283,18 +415,31 @@ export class PlayScreen {
     app.audio.startMusic('dungeon');
   }
   pause() { if (!this.paused) { this.paused = true; this.menu = 0; this.app.audio.play('select'); } }
+  controllers() {
+    const C = this.app.input.controllers, game = this.game;
+    if (game.isClient) return this.app.net?.local ? [this.app.net.local] : [];
+    return game.players.filter(p => !p.ctrlId.startsWith('net')).map(p => C[p.ctrlId]).filter(Boolean);
+  }
+  remoteClick() {}
+  removeCtrl(ctrlId) { if (!this.game.isClient) this.game.removePlayer(ctrlId); }
   update(dt) {
-    const inp = this.app.input, C = inp.controllers, game = this.game;
+    const inp = this.app.input, game = this.game;
     handleClicks(this.buttons, inp.clicks);
-    const mine = game.players.map(p => C[p.ctrlId]).filter(Boolean);
-    if (this.paused) { this.updatePause(mine); return; }
+    const mine = this.controllers();
+    game.localPaused = this.paused;
+    if (this.paused) {
+      this.updatePause(mine);
+      if (game.isClient) game.update(dt);
+      return;
+    }
     if (mine.some(c => c.pause)) { this.pause(); return; }
     if (mine.some(c => c.map)) this.showMap = !this.showMap;
     game.update(dt);
+    if (game.isClient) return;
     if (game.complete) this.app.setScreen(new IntermissionScreen(this.app, game));
-    else if (game.gameOver) this.app.setScreen(new GameOverScreen(this.app, game));
+    else if (game.gameOver) this.app.setScreen(new GameOverScreen(this.app, summarize(game)));
   }
-  activate(item, dir = 1) {
+  activate(item) {
     const s = this.app.settings, au = this.app.audio;
     switch (item) {
       case 'resume': this.paused = false; break;
@@ -319,17 +464,35 @@ export class PlayScreen {
   draw(ctx) {
     const { vw, vh } = this.app, game = this.game;
     this.buttons = [];
+    if (!game.level || (game.isClient && !game.players.length)) {
+      background(ctx, this.app, null);
+      txt(ctx, t('waiting_host'), vw / 2, vh / 2, 10, '#7ad0ff', 'center');
+      return;
+    }
     game.draw(ctx, this.app.settings);
     drawHud(ctx, this.app, game, this.showMap);
+    const me = game.isClient ? game.me : game.players.find(p => p.ctrlId === 'touch');
     if (this.app.input.touchActive) {
       layoutTouch(this.app);
-      drawTouch(ctx, this.app, game.players.find(p => p.ctrlId === 'touch'));
+      drawTouch(ctx, this.app, me);
     } else this.app.input.touchButtons = [];
+    if (game.isClient && !game.me) {
+      const a = Math.floor(game.time * 2) % 2 ? 1 : 0.6;
+      ctx.globalAlpha = a;
+      for (const [i, l] of wrap(ctx, t('press_join'), vw - 40, 9).entries()) txt(ctx, l, vw / 2, vh * 0.72 + i * 16, 9, '#ffd35a', 'center');
+      ctx.globalAlpha = 1;
+    }
+    const hostPaused = game.isClient ? game.hostPaused : false;
+    if (hostPaused && !this.paused) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, vw, vh);
+      txt(ctx, t('host_paused'), vw / 2, vh / 2 - 8, 14, '#ffd35a', 'center');
+    }
     if (!this.paused) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(0, 0, vw, vh);
-    const w = Math.min(380, vw - 30), rh = 34, h = 70 + PAUSE_ITEMS.length * rh;
+    const w = Math.min(380, vw - 30), rh = 34, h = 70 + PAUSE_ITEMS.length * rh + (game.isClient ? 20 : 0);
     const x = (vw - w) / 2, y = (vh - h) / 2;
     panel(ctx, x, y, w, h, 'rgba(16,10,28,0.95)', '#ffd35a88', 12);
     txt(ctx, t('paused'), vw / 2, y + 18, 16, '#ffd35a', 'center');
@@ -344,10 +507,17 @@ export class PlayScreen {
       if (it === 'language') txt(ctx, getLang().toUpperCase(), x + w - 20, ry + 2, 9, '#7ad0ff', 'right');
       hit(this.buttons, x + 8, ry - 6, w - 16, rh - 4, () => { this.menu = i; this.activate(it); });
     });
+    if (game.isClient) txt(ctx, t('online_pause_note'), vw / 2, y + h - 22, 6, '#9a8ab8', 'center');
   }
 }
 
+function summarize(game) {
+  return { levelNum: game.levelNum, players: game.players.map(p => ({ heroKey: p.heroKey, score: p.score })) };
+}
+
 // ================================================================== intermission
+// With a game: this machine runs the choice (local or online host).
+// Without one: an online guest mirroring the host's `data`.
 export class IntermissionScreen {
   constructor(app, game) {
     this.app = app;
@@ -357,11 +527,21 @@ export class IntermissionScreen {
     this.cursor = 1;
     this.embers = [];
     this.buttons = [];
-    this.options = game.players.map(() => shuffle(PERKS.slice()).slice(0, 3));
+    this.data = null;
+    if (game) this.options = game.players.map(() => shuffle(PERKS.slice()).slice(0, 3));
     app.audio.stopMusic();
     app.audio.play('exit');
   }
+  view() {
+    const g = this.game;
+    return {
+      lv: g.levelNum, kills: g.levelKills, time: Math.round(g.levelTime), cur: this.cur, cursor: this.cursor,
+      opts: this.options.map(o => o.map(p => p.id)),
+      pl: g.players.map(p => [p.heroKey, p.score, p.ctrlId]),
+    };
+  }
   choose(i) {
+    if (!this.game) { this.app.net?.up({ k: 'click', i }); return; }
     if (this.cur >= this.game.players.length) return;
     const p = this.game.players[this.cur];
     const perk = this.options[this.cur][i];
@@ -371,17 +551,33 @@ export class IntermissionScreen {
     this.cur++;
     this.cursor = 1;
     this.t = Math.min(this.t, 0.5);
-    if (this.cur >= this.game.players.length) {
-      this.game.nextLevel();
-      this.app.setScreen(new PlayScreen(this.app, this.game));
-    }
+    this.finishIfDone();
+  }
+  finishIfDone() {
+    if (this.cur < this.game.players.length) return;
+    this.game.nextLevel();
+    this.app.setScreen(new PlayScreen(this.app, this.game));
+  }
+  remoteClick(ctrlId, i) {
+    const p = this.game?.players[this.cur];
+    if (p && p.ctrlId === ctrlId && typeof i === 'number' && i >= 0 && i < 3) this.choose(i);
+  }
+  removeCtrl(ctrlId) {
+    if (!this.game) return;
+    const i = this.game.players.findIndex(p => p.ctrlId === ctrlId);
+    if (i < 0) return;
+    this.game.removePlayer(ctrlId);
+    this.options.splice(i, 1);
+    if (i < this.cur) this.cur--;
+    else if (i === this.cur) this.cursor = 1;
+    if (this.game.players.length) this.finishIfDone();
   }
   update(dt) {
     this.t += dt;
     updateEmbers(this.embers, this.app, dt);
     if (this.t < 0.8) return;
     handleClicks(this.buttons, this.app.input.clicks);
-    if (this.cur >= this.game.players.length) return;
+    if (!this.game || this.cur >= this.game.players.length) return;
     const p = this.game.players[this.cur];
     const c = this.app.input.controllers[p.ctrlId];
     if (!c) return;
@@ -390,33 +586,38 @@ export class IntermissionScreen {
     if (c.confirm || c.start) this.choose(this.cursor);
   }
   draw(ctx) {
-    const { vw, vh } = this.app, game = this.game;
+    const { vw, vh } = this.app;
     this.buttons = [];
     background(ctx, this.app, this.embers);
-    txt(ctx, t('cleared', { n: game.levelNum }), vw / 2, vh * 0.08, Math.min(34, vw / 18), '#ffd35a', 'center', SERIF);
-    txt(ctx, `${t('kills', { n: game.levelKills })}   ${t('time', { t: formatTime(game.levelTime) })}`, vw / 2, vh * 0.08 + 50, 9, '#cfc0e8', 'center');
-    const n = game.players.length;
-    const sw = Math.min(200, (vw - 30) / n);
-    game.players.forEach((p, i) => {
+    const v = this.game ? this.view() : this.data;
+    if (!v) return;
+    txt(ctx, t('cleared', { n: v.lv }), vw / 2, vh * 0.08, Math.min(34, vw / 18), '#ffd35a', 'center', SERIF);
+    txt(ctx, `${t('kills', { n: v.kills })}   ${t('time', { t: formatTime(v.time) })}`, vw / 2, vh * 0.08 + 50, 9, '#cfc0e8', 'center');
+    const n = v.pl.length;
+    const sw = Math.min(200, (vw - 30) / Math.max(1, n));
+    v.pl.forEach(([heroKey, score], i) => {
       const x = vw / 2 + (i - (n - 1) / 2) * sw;
-      txt(ctx, heroName(p.heroKey), x, vh * 0.08 + 72, 8, p.hero.light, 'center');
-      txt(ctx, String(p.score), x, vh * 0.08 + 86, 10, '#ffd35a', 'center');
+      txt(ctx, heroName(heroKey), x, vh * 0.08 + 72, 8, HEROES[heroKey].light, 'center');
+      txt(ctx, String(score), x, vh * 0.08 + 86, 10, '#ffd35a', 'center');
     });
-    if (this.cur >= n) return;
-    const p = game.players[this.cur];
+    if (v.cur >= n) return;
+    const [heroKey, , ctrlId] = v.pl[v.cur];
+    const H = HEROES[heroKey];
     const top = vh * 0.08 + 120;
-    txt(ctx, t('choose_relic', { hero: heroName(p.heroKey) }), vw / 2, top, Math.min(12, vw / 40), p.hero.light, 'center');
+    const mine = this.game ? !ctrlId.startsWith('net') : ctrlId === this.app.net?.myCtrl;
+    txt(ctx, t(mine ? 'choose_relic' : 'waiting_relic', { hero: heroName(heroKey) }), vw / 2, top, Math.min(12, vw / 40), H.light, 'center');
     const wide = vw > 640;
     const cw = wide ? Math.min(230, (vw - 60) / 3) : Math.min(340, vw - 40);
     const ch = wide ? Math.min(180, vh - top - 60) : Math.min(90, (vh - top - 60) / 3 - 10);
-    this.options[this.cur].forEach((perk, i) => {
+    v.opts[v.cur].forEach((id, i) => {
+      const perk = PERKS.find(p => p.id === id);
       const x = wide ? vw / 2 + (i - 1) * (cw + 16) - cw / 2 : (vw - cw) / 2;
       const y = wide ? top + 34 : top + 30 + i * (ch + 10);
-      const sel = i === this.cursor;
+      const sel = i === v.cursor;
       const lift = sel ? Math.sin(this.t * 5) * 3 : 0;
-      panel(ctx, x, y - lift, cw, ch, sel ? 'rgba(50,30,70,0.95)' : 'rgba(16,10,28,0.9)', sel ? p.hero.light : 'rgba(255,255,255,0.15)', 10);
+      panel(ctx, x, y - lift, cw, ch, sel ? 'rgba(50,30,70,0.95)' : 'rgba(16,10,28,0.9)', sel ? H.light : 'rgba(255,255,255,0.15)', 10);
       if (sel) { ctx.lineWidth = 3; ctx.stroke(); }
-      hit(this.buttons, x, y, cw, ch, () => this.choose(i));
+      if (mine) hit(this.buttons, x, y, cw, ch, () => this.choose(i));
       ctx.font = `${wide ? 44 : 30}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -434,14 +635,14 @@ export class IntermissionScreen {
 
 // ================================================================== game over
 export class GameOverScreen {
-  constructor(app, game) {
+  constructor(app, summary) {
     this.app = app;
-    this.game = game;
+    this.summary = summary;
     this.t = 0;
     this.embers = [];
     this.buttons = [];
-    this.total = game.players.reduce((s, p) => s + p.score, 0);
-    const entry = { score: this.total, level: game.levelNum, heroes: game.players.map(p => p.heroKey), date: Date.now() };
+    this.total = summary.players.reduce((s, p) => s + p.score, 0);
+    const entry = { score: this.total, level: summary.levelNum, heroes: summary.players.map(p => p.heroKey), date: Date.now() };
     const list = app.scores.concat([entry]).sort((a, b) => b.score - a.score).slice(0, 8);
     this.rank = list.indexOf(entry);
     app.scores = list;
@@ -456,6 +657,7 @@ export class GameOverScreen {
     handleClicks(this.buttons, this.app.input.clicks);
     for (const id in this.app.input.controllers) {
       const c = this.app.input.controllers[id];
+      if (id.startsWith('net')) continue;
       if (c.confirm || c.start) { this.app.setScreen(new TitleScreen(this.app)); return; }
     }
   }
@@ -464,7 +666,7 @@ export class GameOverScreen {
     this.buttons = [];
     background(ctx, this.app, this.embers);
     txt(ctx, t('game_over'), vw / 2, vh * 0.08, Math.min(56, vw / 11), '#ff5a3a', 'center', SERIF);
-    txt(ctx, t('reached', { n: this.game.levelNum }), vw / 2, vh * 0.08 + 76, 10, '#cfc0e8', 'center');
+    txt(ctx, t('reached', { n: this.summary.levelNum }), vw / 2, vh * 0.08 + 76, 10, '#cfc0e8', 'center');
     txt(ctx, `${t('total')}: ${this.total}`, vw / 2, vh * 0.08 + 98, 14, '#ffd35a', 'center');
     if (this.rank === 0) txt(ctx, t('new_record'), vw / 2, vh * 0.08 + 122, 10, Math.floor(this.t * 4) % 2 ? '#7dffa0' : '#fff', 'center');
     const lw = Math.min(460, vw - 30), lx = (vw - lw) / 2;
@@ -480,6 +682,6 @@ export class GameOverScreen {
       y += 18;
     });
     if (this.t > 1.2 && Math.floor(this.t * 2) % 2 === 0) txt(ctx, t('press_continue'), vw / 2, vh - 40, 8, '#fff', 'center');
-    hit(this.buttons, 0, 0, vw, vh, () => this.app.setScreen(new TitleScreen(this.app)));
+    hit(this.buttons, 0, 0, vw, vh, () => { if (this.t > 1.2) this.app.setScreen(new TitleScreen(this.app)); });
   }
 }

@@ -13,8 +13,14 @@ const FLOW_MAX = 70;
 const HASH = 64;
 
 export class Game {
-  constructor(app, specs) {
+  // opts.record: keep an event log for network clients (host).
+  // opts.onLevel: called after each level is generated.
+  // opts.client: build an empty shell whose state comes from the network.
+  constructor(app, specs, opts = {}) {
     this.app = app;
+    this.ev = opts.record ? [] : null;
+    this.onLevel = opts.onLevel || null;
+    this.nextId = 1;
     this.audio = app.audio;
     this.players = [];
     for (const s of specs) this.addPlayer(s.ctrlId, s.hero);
@@ -26,7 +32,9 @@ export class Game {
     this.totalKills = 0;
     this.lightCanvas = document.createElement('canvas');
     this.lightCtx = this.lightCanvas.getContext('2d');
-    this.nextLevel();
+    this.enemies = []; this.generators = []; this.projectiles = []; this.items = [];
+    this.particles = []; this.texts = []; this.lobs = []; this.effects = [];
+    if (!opts.client) this.nextLevel();
   }
 
   addPlayer(ctrlId, heroKey) {
@@ -48,24 +56,37 @@ export class Game {
     this.loadLevel(this.levelNum);
   }
 
-  loadLevel(n) {
-    const L = generateLevel(n, (Math.random() * 1e9) | 0, this.players.length);
+  // Everything needed to draw a level; shared with the network client.
+  setupLevel(L, n) {
+    this.levelNum = n;
     this.level = L;
     this.W = L.W; this.H = L.H; this.tiles = L.tiles;
     this.theme = R.THEMES[Math.floor((n - 1) / 2) % R.THEMES.length];
     this.tileCanvas = R.buildTileCanvas(L, this.theme);
     this.enemies = []; this.generators = []; this.projectiles = []; this.items = [];
     this.particles = []; this.texts = []; this.lobs = []; this.effects = [];
-    this.flow = new Int16Array(L.W * L.H);
-    this.flowQ = new Int32Array(L.W * L.H);
-    this.flowT = 0;
     this.explored = new Uint8Array(L.W * L.H);
     this.exploreT = 0;
     this.mini = document.createElement('canvas');
     this.mini.width = L.W; this.mini.height = L.H;
     this.miniCtx = this.mini.getContext('2d');
     this.miniImg = this.miniCtx.createImageData(L.W, L.H);
-    this.miniT = 0;
+    this.torches = L.torches.map(tc => ({ x: (tc.x + 0.5) * TILE, y: tc.y * TILE + 22, ph: Math.random() * 10 }));
+    this.exitPos = { x: (L.exit.x + 0.5) * TILE, y: (L.exit.y + 0.5) * TILE };
+    this.exiting = 0;
+    this.darkness = Math.min(0.93, 0.82 + n * 0.01);
+    this.banner = { text: t('level', { n }), sub: t('find_exit'), t: 3.2 };
+    this.hint = n === 1 ? { text: t('hint1'), t: 9 } : n === 2 ? { text: t('hint2'), t: 7 } : null;
+  }
+
+  loadLevel(n, seed = (Math.random() * 1e9) | 0) {
+    const L = generateLevel(n, seed, this.players.length);
+    this.seed = seed;
+    this.genPlayers = this.players.length;
+    this.setupLevel(L, n);
+    this.flow = new Int16Array(L.W * L.H);
+    this.flowQ = new Int32Array(L.W * L.H);
+    this.flowT = 0;
     this.levelKills = 0;
 
     const sx = (L.start.x + 0.5) * TILE, sy = (L.start.y + 0.5) * TILE;
@@ -78,25 +99,26 @@ export class Game {
     for (const g of L.generators) this.addGenerator(g);
     for (const e of L.enemies) this.spawnEnemy(e.type, e.tier, (e.x + 0.5) * TILE, (e.y + 0.5) * TILE);
     for (const it of L.items) this.items.push({ kind: it.kind, sub: it.sub, x: (it.x + 0.5) * TILE, y: (it.y + 0.5) * TILE, r: 11, bob: Math.random() * 6 });
-    this.torches = L.torches.map(tc => ({ x: (tc.x + 0.5) * TILE, y: tc.y * TILE + 22, ph: Math.random() * 10 }));
-    this.exitPos = { x: (L.exit.x + 0.5) * TILE, y: (L.exit.y + 0.5) * TILE };
     this.levelTime = 0;
-    this.exiting = 0;
     this.overT = 0;
     this.complete = false;
     this.gameOver = false;
-    this.darkness = Math.min(0.93, 0.82 + n * 0.01);
-    this.banner = { text: t('level', { n }), sub: t('find_exit'), t: 3.2 };
-    this.hint = n === 1 ? { text: t('hint1'), t: 9 } : n === 2 ? { text: t('hint2'), t: 7 } : null;
     this.computeFlow();
     this.updateCamera(0, true);
     if (n === 1) this.say(t('welcome', { hero: this.players.map(p => heroName(p.heroKey)).join(', ') }), true);
     else this.say(pick(t('level_voice')), true);
+    this.onLevel?.(this);
   }
 
   // ------------------------------------------------------------ helpers
-  say(text, force) { this.audio.say(text, force); }
-  sfx(n) { this.audio.play(n); }
+  say(text, force) { this.audio.say(text, force); this.ev?.push(['v', text]); }
+  sfx(n) { this.audio.play(n); this.ev?.push(['s', n]); }
+  addEffect(ef) {
+    this.effects.push(ef);
+    if (!this.ev) return;
+    if (ef.kind === 'spin') this.ev.push(['e', 'spin', ef.p.slot, ef.life, ef.color]);
+    else this.ev.push(['e', 'ring', Math.round(ef.x), Math.round(ef.y), ef.r0, ef.r1, ef.life, ef.color, ef.w]);
+  }
   tileAt(x, y) {
     const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
     if (tx < 0 || ty < 0 || tx >= this.W || ty >= this.H) return T.WALL;
@@ -170,6 +192,7 @@ export class Game {
   }
 
   burst(x, y, color, n, speed = 120, life = 0.5, size = 3, glow = false) {
+    this.ev?.push(['b', Math.round(x), Math.round(y), color, n, speed, life, size, glow ? 1 : 0]);
     if (this.particles.length > 1400) return;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, s = speed * (0.3 + Math.random() * 0.7);
@@ -177,10 +200,14 @@ export class Game {
     }
   }
   text(x, y, str, color = '#fff', life = 0.9, small = false) {
+    this.ev?.push(['t', Math.round(x), Math.round(y), String(str), color, life, small ? 1 : 0]);
     if (this.texts.length > 90) this.texts.shift();
     this.texts.push({ x, y, str: String(str), color, life, max: life, small });
   }
-  rumble(p, s, w, ms) { this.app.input.rumble(p.ctrlId, s, w, ms); }
+  rumble(p, s, w, ms) {
+    this.app.input.rumble(p.ctrlId, s, w, ms);
+    this.ev?.push(['r', p.ctrlId, s, w, ms]);
+  }
 
   // ------------------------------------------------------------ spawning
   addGenerator(g) {
@@ -204,6 +231,14 @@ export class Game {
     };
     this.enemies.push(e);
     return e;
+  }
+
+  removePlayer(ctrlId) {
+    const i = this.players.findIndex(p => p.ctrlId === ctrlId);
+    if (i < 0) return;
+    const [p] = this.players.splice(i, 1);
+    this.players.forEach((q, j) => { q.slot = j; });
+    this.burst(p.x, p.y, p.hero.light, 20, 120, 0.6, 3, true);
   }
 
   dropIn(ctrlId) {
@@ -479,7 +514,7 @@ export class Game {
     switch (H.special) {
       case 'whirlwind':
         p.spinT = 0.75; p.spinTick = 0; p.iframes = Math.max(p.iframes, 0.3);
-        this.effects.push({ kind: 'spin', p, life: 0.75, max: 0.75, color: H.light });
+        this.addEffect({ kind: 'spin', p, life: 0.75, max: 0.75, color: H.light });
         this.sfx('whirl');
         break;
       case 'charge':
@@ -489,7 +524,7 @@ export class Game {
         break;
       case 'nova': {
         const RR = 175;
-        this.effects.push({ kind: 'ring', x: p.x, y: p.y, r0: 10, r1: RR, life: 0.45, max: 0.45, color: '#c77dff', w: 10 });
+        this.addEffect({ kind: 'ring', x: p.x, y: p.y, r0: 10, r1: RR, life: 0.45, max: 0.45, color: '#c77dff', w: 10 });
         this.queryEnemies(p.x, p.y, RR, e => {
           if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 < RR * RR) { this.damageEnemy(e, 85 * m, p, e.x - p.x, e.y - p.y, 'special'); e.stun = 1.2; }
         });
@@ -543,7 +578,7 @@ export class Game {
 
   bomb(x, y, power, src, small) {
     const RR = small ? 200 : 460;
-    this.effects.push({ kind: 'ring', x, y, r0: 20, r1: RR, life: 0.6, max: 0.6, color: '#9fe8ff', w: 18 });
+    this.addEffect({ kind: 'ring', x, y, r0: 20, r1: RR, life: 0.6, max: 0.6, color: '#9fe8ff', w: 18 });
     this.flash = small ? 0.45 : 0.9;
     this.shake = Math.max(this.shake, small ? 6 : 14);
     this.sfx('bomb');
@@ -587,6 +622,16 @@ export class Game {
   }
 
   openDoor(tx, ty) {
+    this.ev?.push(['d', tx, ty]);
+    for (const [x, y] of this.openDoorTiles(tx, ty)) this.burst((x + 0.5) * TILE, (y + 0.5) * TILE, '#8a5a2a', 8, 140, 0.6, 3);
+    this.text((tx + 0.5) * TILE, ty * TILE, t('door'), '#ffd35a', 1.2);
+    this.sfx('door');
+    this.flowT = 0;
+  }
+
+  // Flood-fills the door group at (tx, ty) to floor and redraws it.
+  openDoorTiles(tx, ty) {
+    if (this.tiles[ty * this.W + tx] !== T.DOOR) return [];
     const st = [[tx, ty]];
     const opened = [];
     this.tiles[ty * this.W + tx] = T.FLOOR;
@@ -600,13 +645,8 @@ export class Game {
       }
     }
     const g = this.tileCanvas.getContext('2d');
-    for (const [x, y] of opened) {
-      R.drawTile(g, this.level, this.theme, x, y);
-      this.burst((x + 0.5) * TILE, (y + 0.5) * TILE, '#8a5a2a', 8, 140, 0.6, 3);
-    }
-    this.text((tx + 0.5) * TILE, ty * TILE, t('door'), '#ffd35a', 1.2);
-    this.sfx('door');
-    this.flowT = 0;
+    for (const [x, y] of opened) R.drawTile(g, this.level, this.theme, x, y);
+    return opened;
   }
 
   beginExit(p) {

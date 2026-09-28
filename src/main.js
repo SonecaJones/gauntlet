@@ -1,6 +1,6 @@
 import { Input } from './input.js';
 import { AudioSys } from './audio.js';
-import { TitleScreen, PlayScreen } from './screens.js';
+import { TitleScreen, PlayScreen, JoinScreen } from './screens.js';
 import { setLang } from './i18n.js';
 
 const SETTINGS_KEY = 'gauntlet.settings';
@@ -25,18 +25,25 @@ class App {
     this.input = new Input(canvas);
     this.audio = new AudioSys(this.settings);
     this.input.onGesture = () => this.audio.unlock();
+    this.net = null;
     this.resize();
     window.addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.screen instanceof PlayScreen) this.screen.pause();
+      if (document.hidden && !this.net && this.screen instanceof PlayScreen) this.screen.pause();
     });
-    this.screen = new TitleScreen(this);
+    const room = new URLSearchParams(location.search).get('sala') || new URLSearchParams(location.search).get('room');
+    this.screen = room ? new JoinScreen(this, null, room.toUpperCase().slice(0, 4)) : new TitleScreen(this);
     this.last = performance.now();
     requestAnimationFrame(ts => this.frame(ts));
   }
   saveSettings() { save(SETTINGS_KEY, this.settings); }
   saveScores() { save(SCORES_KEY, this.scores); }
-  setScreen(s) { this.screen = s; }
+  setScreen(s) {
+    this.screen?.leave?.();
+    this.screen = s;
+    if (s instanceof TitleScreen && this.net) this.net.close();
+    this.net?.onScreen(s);
+  }
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.vw = window.innerWidth;
@@ -48,7 +55,9 @@ class App {
     const dt = Math.min(0.05, Math.max(0, (ts - this.last) / 1000));
     this.last = ts;
     this.input.poll();
+    this.net?.beforeUpdate();
     this.screen.update(dt);
+    this.net?.afterUpdate(dt);
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;

@@ -61,6 +61,17 @@ const STR = {
     perk_leech: 'Pacto de Sangue', perkd_leech: 'Cada abate restaura 2 de vida',
     device_kbm: 'Teclado', device_pad: 'Controle {n}', device_touch: 'Toque',
     exit_word: 'SAÍDA',
+    menu_local: 'Jogo local', menu_host: 'Criar sala online', menu_join: 'Entrar em sala online',
+    room: 'SALA {code}', online_guest: 'Você é convidado nesta sala',
+    creating: 'Criando sala...', connecting: 'Conectando...',
+    enter_code: 'Digite o código de 4 letras da sala', join_btn: 'Entrar',
+    net_fail: 'Não foi possível conectar ao servidor. O modo online precisa do servidor do jogo (npm start).',
+    room_not_found: 'Sala não encontrada. Confira o código.', room_full: 'A sala está cheia.',
+    host_left: 'O anfitrião encerrou a partida.', conn_lost: 'A conexão com o servidor caiu.',
+    device_net: 'Online', press_join: 'Você está assistindo. Pressione ENTER / START para entrar na partida',
+    host_paused: 'PAUSADO PELO ANFITRIÃO', waiting_host: 'Conectado! Aguardando o anfitrião...',
+    online_pause_note: 'Partida online: o jogo continua enquanto este menu está aberto',
+    you: 'VOCÊ', waiting_relic: 'Aguardando {hero} escolher uma relíquia',
   },
   en: {
     subtitle: 'REFORGED',
@@ -124,6 +135,17 @@ const STR = {
     perk_leech: 'Blood Pact', perkd_leech: 'Each kill restores 2 health',
     device_kbm: 'Keyboard', device_pad: 'Gamepad {n}', device_touch: 'Touch',
     exit_word: 'EXIT',
+    menu_local: 'Local game', menu_host: 'Host online room', menu_join: 'Join online room',
+    room: 'ROOM {code}', online_guest: 'You are a guest in this room',
+    creating: 'Creating room...', connecting: 'Connecting...',
+    enter_code: 'Type the 4-letter room code', join_btn: 'Join',
+    net_fail: 'Could not reach the server. Online play needs the game server (npm start).',
+    room_not_found: 'Room not found. Check the code.', room_full: 'The room is full.',
+    host_left: 'The host ended the game.', conn_lost: 'Lost connection to the server.',
+    device_net: 'Online', press_join: 'You are spectating. Press ENTER / START to join the game',
+    host_paused: 'PAUSED BY HOST', waiting_host: 'Connected! Waiting for the host...',
+    online_pause_note: 'Online game: play continues while this menu is open',
+    you: 'YOU', waiting_relic: 'Waiting for {hero} to choose a relic',
   },
 };
 
@@ -142,5 +164,6 @@ export const heroName = key => t('hero_' + key);
 export function deviceName(id) {
   if (id === 'kbm') return t('device_kbm');
   if (id === 'touch') return t('device_touch');
+  if (id.startsWith('net')) return t('device_net');
   return t('device_pad', { n: Number(id.slice(3)) + 1 });
 }
