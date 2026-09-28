@@ -1,0 +1,11 @@
+{
+  "name": "gauntlet-reforged",
+  "version": "1.0.0",
+  "description": "Clone moderno do Gauntlet do NES em HTML5 Canvas, sem dependências.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && for f in src/*.js; do node --check \"$f\" || exit 1; done"
+  }
+}
