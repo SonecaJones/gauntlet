@@ -20,6 +20,7 @@ export class Game {
     this.app = app;
     this.ev = opts.record ? [] : null;
     this.onLevel = opts.onLevel || null;
+    this.prefs = opts.prefs || {};
     this.nextId = 1;
     this.audio = app.audio;
     this.players = [];
@@ -243,7 +244,9 @@ export class Game {
   }
 
   dropIn(ctrlId) {
-    const hero = HERO_ORDER.find(h => !this.players.some(p => p.heroKey === h));
+    const free = h => !this.players.some(p => p.heroKey === h);
+    const want = this.prefs[ctrlId];
+    const hero = want && free(want) ? want : HERO_ORDER.find(free);
     const anchor = this.players.find(p => p.alive) || this.players[0];
     if (!hero || !anchor) return;
     const p = this.addPlayer(ctrlId, hero);

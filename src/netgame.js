@@ -197,6 +197,7 @@ export class ClientGame extends Game {
     const local = this.app.net?.local;
     const neutral = { move: { x: 0, y: 0 } };
     this.lastCmd = this.buildCmd(this.localPaused || !local ? neutral : local);
+    if (this.app.net?.wantJoin) { this.lastCmd.start = 1; this.app.net.wantJoin = false; }
     if (this.me) this.predict(dt, this.lastCmd, latestRows.get(this.myCtrl));
 
     this.updateParticles(dt);

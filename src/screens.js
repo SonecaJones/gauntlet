@@ -350,6 +350,8 @@ export class SelectScreen {
     const slots = this.mode === 'host' ? this.slots.filter(s => s.ready) : this.slots;
     const specs = slots.map(s => ({ ctrlId: s.ctrlId, hero: HERO_ORDER[s.cursor] }));
     const opts = this.mode === 'host' ? { record: true, onLevel: g => app.net?.sendLevel(g) } : {};
+    // Remember everyone's pick so late joiners get the hero they chose.
+    opts.prefs = Object.fromEntries(this.slots.map(s => [s.ctrlId, HERO_ORDER[s.cursor]]));
     app.setScreen(new PlayScreen(app, new Game(app, specs, opts)));
   }
   draw(ctx) {
@@ -388,7 +390,7 @@ export class SelectScreen {
       ty += fs + 8;
       const bars = [['stat_speed', 'speed'], ['stat_armor', 'armor'], ['stat_shot', 'shot'], ['stat_magic', 'magic']];
       for (const [lbl, key] of bars) {
-        if (ty > y + ch - 20) break;
+        if (ty > y + ch - 34) break;
         txt(ctx, t(lbl), x + 10, ty, fs - 2, '#ccc');
         for (let b = 0; b < 5; b++) {
           ctx.fillStyle = b < H.bars[key] ? H.color : 'rgba(255,255,255,0.12)';
@@ -397,9 +399,9 @@ export class SelectScreen {
         ty += fs + 4;
       }
       ty += 4;
-      if (ty < y + ch - 24) { txt(ctx, `${t('special')}: ${t('sp_' + k)}`, x + 10, ty, fs - 2, '#ffd35a'); ty += fs + 6; }
+      if (ty < y + ch - 38) { txt(ctx, `${t('special')}: ${t('sp_' + k)}`, x + 10, ty, fs - 2, '#ffd35a'); ty += fs + 6; }
       for (const l of wrap(ctx, t('desc_' + k), cw - 20, fs - 2)) {
-        if (ty > y + ch - 14) break;
+        if (ty > y + ch - 34) break;
         txt(ctx, l, x + 10, ty, fs - 2, '#d8d0e8'); ty += fs + 3;
       }
       here.forEach((s, j) => {
@@ -412,6 +414,11 @@ export class SelectScreen {
         ctx.fillStyle = playerColor(this.slots.indexOf(lockedBy));
         ctx.fillRect(x, y + ch - 26, cw, 26);
         txt(ctx, t('ready'), x + cw / 2, y + ch - 19, 10, '#111', 'center', PIX, false);
+      } else if (here.length) {
+        const a = 0.55 + Math.sin(this.t * 5) * 0.35;
+        ctx.fillStyle = `rgba(255,211,90,${a * 0.25})`;
+        ctx.fillRect(x, y + ch - 26, cw, 26);
+        txt(ctx, t('tap_ready'), x + cw / 2, y + ch - 18, cw < 170 ? 6 : 7, '#ffe9a0', 'center');
       }
     });
     const sb = this.app.safe ? this.app.safe.b : 0;
@@ -524,10 +531,17 @@ export class PlayScreen {
       drawTouch(ctx, this.app, me);
     } else this.app.input.touchButtons = [];
     if (game.isClient && !game.me) {
-      const a = Math.floor(game.time * 2) % 2 ? 1 : 0.6;
-      ctx.globalAlpha = a;
-      for (const [i, l] of wrap(ctx, t('press_join'), vw - 40, 9).entries()) txt(ctx, l, vw / 2, vh * 0.72 + i * 16, 9, '#ffd35a', 'center');
-      ctx.globalAlpha = 1;
+      // Spectator: a tappable join button (phones have no ENTER/START).
+      const full = game.players.length >= 4;
+      const bw = Math.min(320, vw - 60), bh = 48, bx = (vw - bw) / 2, by = vh * 0.6;
+      let ty = by - 14;
+      for (const l of wrap(ctx, t(full ? 'game_full' : 'press_join'), vw - 40, 8).reverse()) { txt(ctx, l, vw / 2, ty, 8, '#e8e0ff', 'center'); ty -= 14; }
+      if (!full) {
+        const pulse = 0.75 + Math.sin(game.time * 5) * 0.25;
+        panel(ctx, bx, by, bw, bh, `rgba(90,60,10,${pulse})`, '#ffd35a', 10);
+        txt(ctx, '▶ ' + t('join_game'), vw / 2, by + 18, 11, '#ffe9a0', 'center');
+        hit(this.buttons, bx, by, bw, bh, () => { if (this.app.net) this.app.net.wantJoin = true; this.app.audio.play('confirm'); });
+      }
     }
     const hostPaused = game.isClient ? game.hostPaused : false;
     if (hostPaused && !this.paused) {
