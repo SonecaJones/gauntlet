@@ -1,10 +1,10 @@
 // Offline support: network first (so updates arrive right away), cache as fallback.
-const CACHE = 'gauntlet-v4';
+const CACHE = 'gauntlet-v5';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/main.js', 'src/audio.js', 'src/constants.js', 'src/enemies.js', 'src/game.js', 'src/heroes.js',
   'src/i18n.js', 'src/input.js', 'src/level.js', 'src/net.js', 'src/netgame.js', 'src/render.js',
-  'src/screens.js', 'src/ui.js', 'src/util.js', 'src/config.js', 'src/transport.js', 'src/music.js', 'vendor/peerjs.min.js',
+  'src/screens.js', 'src/ui.js', 'src/util.js', 'src/config.js', 'src/transport.js', 'src/music.js', 'src/boss.js', 'vendor/peerjs.min.js',
 ];
 
 self.addEventListener('install', e => {

@@ -107,6 +107,22 @@ export function drawHud(ctx, app, game, showMap) {
     ctx.fillRect(x + 8, y + ph - 6, (pw - 16) * (1 - cd), 3);
   });
 
+  // boss health bar
+  const boss = game.enemies.find(e => e.type === 'boss' && !e.dead && e.act !== 'sleep');
+  if (boss) {
+    const bw = Math.min(460, vw - 40 - sf.l - sf.r), bx = (vw - bw) / 2, by = Math.min(vh - 60, sf.t + (vw < 900 ? ph + 34 : 22));
+    const f = Math.max(0, boss.hp / boss.maxHp);
+    txt(ctx, t('name_' + boss.kind), vw / 2, by - 14, 9, boss.phase === 2 ? '#ff6a4a' : '#ffd35a', 'center');
+    panel(ctx, bx, by, bw, 14, 'rgba(10,6,16,0.85)', 'rgba(255,255,255,0.3)', 4);
+    const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    g.addColorStop(0, boss.phase === 2 ? '#ff2a2a' : '#c0282a');
+    g.addColorStop(1, boss.phase === 2 ? '#ff8a3a' : '#ff5a3a');
+    ctx.fillStyle = g;
+    ctx.fillRect(bx + 2, by + 2, (bw - 4) * f, 10);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(bx + (bw - 4) * 0.5 + 2, by + 2, 1, 10);
+  }
+
   // level + minimap
   const mmMax = Math.min(150, vw * 0.2, vh * 0.26);
   const mmScale = Math.max(0.8, Math.min(3, mmMax / game.W, mmMax / game.H));
@@ -158,7 +174,12 @@ function drawMap(ctx, game, x, y, s, alpha) {
   ctx.drawImage(game.mini, x, y, game.W * s, game.H * s);
   ctx.imageSmoothingEnabled = true;
   const ex = Math.floor(game.exitPos.x / TILE), ey = Math.floor(game.exitPos.y / TILE);
-  if (game.explored[ey * game.W + ex] && Math.floor(game.time * 3) % 2) {
+  for (const e of game.enemies) {
+    if (e.type !== 'boss' || e.dead) continue;
+    ctx.fillStyle = '#ff3a2a';
+    ctx.beginPath(); ctx.arc(x + (e.x / TILE) * s, y + (e.y / TILE) * s, Math.max(3, s * 1.8), 0, Math.PI * 2); ctx.fill();
+  }
+  if (game.exitOpen && game.explored[ey * game.W + ex] && Math.floor(game.time * 3) % 2) {
     ctx.fillStyle = '#ffd35a';
     ctx.fillRect(x + ex * s - s, y + ey * s - s, s * 3, s * 3);
   }

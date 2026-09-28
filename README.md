@@ -73,6 +73,16 @@ A biblioteca do PeerJS está em `vendor/peerjs.min.js` (licença MIT), então o 
 - "Não atire na comida!" — tiros destroem comida (e atirar numa poção a detona).
 - Narrador com as frases icônicas ("O Guerreiro precisa de comida, urgente!") via síntese de voz.
 
+## Chefes
+
+A cada 5 níveis há uma arena de chefe. O caminho até ela tem comida e poções extras, e a saída só aparece quando o chefe cai. Os chefes se revezam e ficam mais fortes a cada rodada (5, 10, 15, depois recomeça):
+
+- **Dragão Vermelho**: sopro de fogo em cone que acompanha o alvo, golpe de cauda ao redor e, na fúria, chuva de meteoros.
+- **Necromante**: se teletransporta, dispara anéis de raios e esferas teleguiadas e invoca mortos-vivos.
+- **Golem de Pedra**: investida (se bater na parede fica atordoado e leva dano dobrado), ondas de choque que dá para pular com a esquiva e arremesso de pedras.
+
+Com metade da vida o chefe entra em **fúria**: fica mais rápido e agressivo. A vida do chefe cresce com o número de jogadores.
+
 ## O que é moderno
 
 - **Controle twin-stick**: mira independente do movimento (mouse, analógico direito ou joystick de toque).
@@ -106,6 +116,7 @@ server.js         servidor local + intermediário WebSocket opcional (npm start)
 src/main.js       loop principal, configurações, recordes
 src/screens.js    telas: título, seleção, jogo/pausa, relíquias, fim de jogo
 src/game.js       simulação: heróis, inimigos, IA, combate, câmera, iluminação
+src/boss.js       chefes: IA do Dragão, Necromante e Golem, ondas de choque, vitória
 src/level.js      gerador procedural de masmorras
 src/render.js     arte procedural (tiles, heróis, monstros, itens)
 src/ui.js         HUD, minimapa, controles de toque

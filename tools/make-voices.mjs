@@ -5,6 +5,7 @@
 //   npm install && npm run voices
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { setLang, t, heroName } from '../src/i18n.js';
 import { HERO_ORDER } from '../src/heroes.js';
 
@@ -23,6 +24,7 @@ function lines() {
     out.push([`hero-${h}`, heroName(h)]);
   }
   out.push(['welcome_all', t('welcome_all')], ['game_over', t('game_over')]);
+  for (const k of ['boss_dragon', 'boss_lich', 'boss_golem', 'boss_rage', 'boss_down']) out.push([k, t(k)]);
   t('level_voice').forEach((s, i) => out.push([`level_voice_${i}`, s]));
   return out;
 }
@@ -69,17 +71,31 @@ function wavFile(pcm) {
   return Buffer.concat([h, pcm]);
 }
 
-let total = 0;
-for (const [lang, voiceFile] of Object.entries(LANGS)) {
-  setLang(lang);
+// eSpeak (compiled to JS) leaks memory and crashes after ~60 lines, so each
+// batch runs in a fresh process:  node make-voices.mjs <lang> <from> <to>
+const BATCH = 20;
+const [, , onlyLang, from, to] = globalThis.process.argv;
+if (onlyLang) {
+  const voiceFile = LANGS[onlyLang];
+  setLang(onlyLang);
   meSpeak.loadVoice(require(voiceFile));
   const voiceId = voiceFile.replace(/^mespeak\/voices\//, '').replace(/\.json$/, '');
-  mkdirSync(new URL(`../voice/${lang}/`, import.meta.url), { recursive: true });
-  for (const [key, text] of lines()) {
+  mkdirSync(new URL(`../voice/${onlyLang}/`, import.meta.url), { recursive: true });
+  for (const [key, text] of lines().slice(Number(from), Number(to))) {
     const raw = meSpeak.speak(text, { rawdata: 'buffer', voice: voiceId, pitch: 14, speed: 138, wordgap: 1, amplitude: 140 });
-    const file = wavFile(process(toSamples(raw)));
-    writeFileSync(new URL(`../voice/${lang}/${key}.wav`, import.meta.url), file);
-    total += file.length;
+    writeFileSync(new URL(`../voice/${onlyLang}/${key}.wav`, import.meta.url), wavFile(process(toSamples(raw))));
   }
+} else {
+  const { execFileSync } = await import('node:child_process');
+  const self = fileURLToPath(import.meta.url);
+  let count = 0;
+  for (const lang of Object.keys(LANGS)) {
+    setLang(lang);
+    const n = lines().length;
+    for (let i = 0; i < n; i += BATCH) {
+      execFileSync(globalThis.process.execPath, [self, lang, String(i), String(Math.min(n, i + BATCH))], { stdio: ['ignore', 'ignore', 'inherit'] });
+    }
+    count += n;
+  }
+  console.log(`${count} voice lines written to voice/`);
 }
-console.log(`voice lines written (${(total / 1024).toFixed(0)} KB)`);

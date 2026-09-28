@@ -9,5 +9,5 @@ export const ENEMIES = {
 };
 export const ENEMY_COLORS = {
   ghost: '#cfd8ff', grunt: '#b08040', demon: '#e04a30',
-  lobber: '#7fc050', sorcerer: '#f0c040', death: '#9a60ff',
+  lobber: '#7fc050', sorcerer: '#f0c040', death: '#9a60ff', boss: '#ff7a3a',
 };

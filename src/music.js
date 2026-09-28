@@ -131,7 +131,19 @@ const gameover = build(['Dm', 'Gm', 'A', 'Dm'], [
   'D4 - - - - - - - - - - - . . . .',
 ], { bass: 'long', p2: false });
 
+const boss = build(['Dm', 'Gm', 'Bb', 'A', 'Dm', 'Gm', 'Bb', 'A'], [
+  'D5 D5 . D5 F5 - D5 - E5 - C#5 - D5 - A4 -',
+  'D5 D5 . D5 G5 - F5 - E5 - F5 - E5 - C#5 -',
+  'Bb4 - D5 - F5 - Bb5 - A5 - F5 - D5 - Bb4 -',
+  'A4 - C#5 - E5 - A5 - G5 - E5 - C#5 - E5 -',
+  'D6 - - - A5 - - - F5 - - - D5 - - -',
+  'E5 - F5 - G5 - A5 - Bb5 - A5 - G5 - F5 -',
+  'F5 - - - D5 - Bb4 - D5 - F5 - Bb5 - - -',
+  'A5 - G#5 - A5 - Bb5 - A5 - G5 - F5 - E5 -',
+], { drums: 'drive', fill: true });
+
 export const SONGS = {
+  boss: { bpm: 160, duty: 0.5, loop: boss },
   title: { bpm: 96, duty: 0.5, intro: titleIntro, loop: titleLoop },
   dungeonA: { bpm: 132, duty: 0.25, loop: dungeonA },
   dungeonB: { bpm: 144, duty: 0.25, loop: dungeonB },

@@ -75,6 +75,10 @@ const STR = {
     start_game: 'COMEÇAR', start_ready: 'COMEÇAR ({n} de {m} prontos)', need_ready: 'Escolha um herói e fique PRONTO',
     host_hint: 'Clique em COMEÇAR (ou ENTER / START) quando todos entrarem. Quem não estiver pronto entra depois com START.',
     waiting_start: 'Pronto! Aguardando o anfitrião começar a partida...',
+    boss_await: 'Um chefe aguarda na arena', boss_sub: 'Derrote o chefe para abrir a saída',
+    name_dragon: 'DRAGÃO VERMELHO', name_lich: 'NECROMANTE', name_golem: 'GOLEM DE PEDRA',
+    boss_dragon: 'O Dragão despertou!', boss_lich: 'O Necromante se ergue dos mortos!', boss_golem: 'O Golem de pedra acordou!',
+    rage: 'FÚRIA!', boss_rage: 'Ele está furioso!', boss_down: 'O chefe foi derrotado!', exit_open: 'A saída se abriu',
     you: 'VOCÊ', waiting_relic: 'Aguardando {hero} escolher uma relíquia',
   },
   en: {
@@ -153,6 +157,10 @@ const STR = {
     start_game: 'START', start_ready: 'START ({n} of {m} ready)', need_ready: 'Pick a hero and get READY',
     host_hint: 'Press START (or ENTER / START) once everyone is in. Anyone not ready can join later with START.',
     waiting_start: 'Ready! Waiting for the host to start the game...',
+    boss_await: 'A boss awaits in the arena', boss_sub: 'Defeat the boss to open the exit',
+    name_dragon: 'RED DRAGON', name_lich: 'NECROMANCER', name_golem: 'STONE GOLEM',
+    boss_dragon: 'The Dragon has awakened!', boss_lich: 'The Necromancer rises from the dead!', boss_golem: 'The Stone Golem awakens!',
+    rage: 'RAGE!', boss_rage: 'It is enraged!', boss_down: 'The boss has been defeated!', exit_open: 'The exit has opened',
     you: 'YOU', waiting_relic: 'Waiting for {hero} to choose a relic',
   },
 };

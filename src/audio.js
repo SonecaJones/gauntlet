@@ -116,6 +116,14 @@ export class AudioSys {
       case 'confirm': this.tone({ f: 880, dur: 0.06, vol: 0.08 }); this.tone({ f: 1320, dur: 0.12, vol: 0.08, delay: 0.06 }); break;
       case 'back': this.tone({ f: 500, f2: 300, dur: 0.1, vol: 0.07 }); break;
       case 'revive': this.arp([523, 659, 784, 1046, 1318], 0.07, { type: 'sine', dur: 0.14, vol: 0.14 }); break;
+      case 'roar':
+        this.noise({ f: 1400, f2: 160, dur: 1.2, vol: 0.5, q: 2 });
+        this.tone({ type: 'sawtooth', f: 95, f2: 42, dur: 1.1, vol: 0.28 });
+        this.tone({ type: 'square', f: 70, f2: 35, dur: 1.0, vol: 0.12 });
+        break;
+      case 'breath': this.noise({ ft: 'bandpass', f: 900, f2: 500, dur: 0.25, vol: 0.14, q: 1.5 }); break;
+      case 'slam': this.tone({ type: 'sine', f: 95, f2: 28, dur: 0.55, vol: 0.6 }); this.noise({ f: 700, f2: 60, dur: 0.5, vol: 0.45 }); break;
+      case 'tele': this.tone({ type: 'sine', f: 180, f2: 1700, dur: 0.4, vol: 0.14 }); this.tone({ type: 'triangle', f: 1700, f2: 180, dur: 0.4, vol: 0.08, delay: 0.1 }); break;
       case 'spawn': this.noise({ ft: 'bandpass', f: 300, f2: 900, dur: 0.18, vol: 0.06 }); break;
     }
   }

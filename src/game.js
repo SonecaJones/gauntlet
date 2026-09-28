@@ -5,6 +5,7 @@ import { generateLevel } from './level.js';
 import * as R from './render.js';
 import { clamp, lerp, rand, pick, norm } from './util.js';
 import { t, heroName } from './i18n.js';
+import { spawnBoss, updateBoss, updateWaves, bossDefeated, wakeBoss, openExitTile } from './boss.js';
 
 const EMPTY = { move: { x: 0, y: 0 }, aim: null, aimPoint: null, fire: false };
 const START_HP = 800;
@@ -46,7 +47,7 @@ export class Game {
       spinT: 0, spinTick: 0, chargeT: 0, chargeX: 0, chargeY: 0, chargeHit: null,
       iframes: 0, hurt: 0, meleeT: 0, drain: 0, alive: true, revive: 0, buffs: {},
       mods: { dmg: 1, rate: 1, speed: 1, armor: 0, pierce: 0, multi: 0, food: 1, magic: 1, cd: 1, melee: 1, gold: 1, leech: 0 },
-      perks: [], warn: 0, moving: false, walk: 0, kills: 0,
+      perks: [], warn: 0, moving: false, walk: 0, kills: 0, kx: 0, ky: 0,
     };
     this.players.push(p);
     return p;
@@ -76,7 +77,10 @@ export class Game {
     this.exitPos = { x: (L.exit.x + 0.5) * TILE, y: (L.exit.y + 0.5) * TILE };
     this.exiting = 0;
     this.darkness = Math.min(0.93, 0.82 + n * 0.01);
-    this.banner = { text: t('level', { n }), sub: t('find_exit'), t: 3.2 };
+    this.exitOpen = !L.bossExitHidden;
+    this.arena = L.arena || null;
+    this.waves = [];
+    this.banner = { text: t('level', { n }), sub: t(L.boss ? 'boss_await' : 'find_exit'), t: 3.2 };
     this.hint = n === 1 ? { text: t('hint1'), t: 9 } : n === 2 ? { text: t('hint2'), t: 7 } : null;
   }
 
@@ -100,6 +104,7 @@ export class Game {
     for (const g of L.generators) this.addGenerator(g);
     for (const e of L.enemies) this.spawnEnemy(e.type, e.tier, (e.x + 0.5) * TILE, (e.y + 0.5) * TILE);
     for (const it of L.items) this.items.push({ kind: it.kind, sub: it.sub, x: (it.x + 0.5) * TILE, y: (it.y + 0.5) * TILE, r: 11, bob: Math.random() * 6 });
+    this.boss = L.boss ? spawnBoss(this, L.boss) : null;
     this.levelTime = 0;
     this.overT = 0;
     this.complete = false;
@@ -119,7 +124,7 @@ export class Game {
     this.effects.push(ef);
     if (!this.ev) return;
     if (ef.kind === 'spin') this.ev.push(['e', 'spin', ef.p.slot, ef.life, ef.color]);
-    else this.ev.push(['e', 'ring', Math.round(ef.x), Math.round(ef.y), ef.r0, ef.r1, ef.life, ef.color, ef.w]);
+    else this.ev.push(['e', ef.kind, Math.round(ef.x), Math.round(ef.y), Math.round(ef.r0), Math.round(ef.r1), ef.life, ef.color, ef.w]);
   }
   tileAt(x, y) {
     const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
@@ -179,7 +184,7 @@ export class Game {
     m.clear();
     this.hcols = Math.ceil((this.W * TILE) / HASH) + 1;
     for (const e of this.enemies) {
-      if (e.dead) continue;
+      if (e.dead || e.type === 'boss') continue;
       const k = ((e.y / HASH) | 0) * this.hcols + ((e.x / HASH) | 0);
       const a = m.get(k);
       if (a) a.push(e); else m.set(k, [e]);
@@ -191,6 +196,21 @@ export class Game {
       const a = this.hash.get(cy * this.hcols + cx);
       if (a) for (const e of a) if (!e.dead) cb(e);
     }
+    // the boss is big, so it is matched by its edge rather than its hash cell
+    const b = this.boss;
+    if (b && !b.dead && (b.x - x) ** 2 + (b.y - y) ** 2 < (r + b.r + 12) ** 2) cb(b);
+  }
+
+  setBanner(key, subKey) {
+    this.banner = { text: t(key), sub: t(subKey), t: 3.2 };
+    this.ev?.push(['B', key, subKey]);
+  }
+  music(kind) { this.audio.startMusic(kind); this.ev?.push(['m', kind]); }
+  openExit(tx, ty) { openExitTile(this, tx, ty); this.ev?.push(['X', tx, ty]); }
+  knockPlayer(p, fx, fy, force) {
+    if (!p.alive || p.buffs.invuln) return;
+    const [nx, ny] = norm(p.x - fx, p.y - fy);
+    p.kx += nx * force; p.ky += ny * force;
   }
 
   burst(x, y, color, n, speed = 120, life = 0.5, size = 3, glow = false) {
@@ -293,6 +313,7 @@ export class Game {
     this.buildHash();
     this.updateProjectiles(dt);
     this.updateLobs(dt);
+    updateWaves(this, dt);
     this.updateParticles(dt);
 
     for (const it of this.items) it.age = (it.age || 0) + dt;
@@ -377,6 +398,12 @@ export class Game {
     } else {
       const sp = p.hero.speed * p.mods.speed * (p.buffs.speed ? 1.35 : 1) * (firing ? 0.82 : 1) * mag;
       vx = mx * sp; vy = my * sp;
+    }
+    if (p.kx || p.ky) {
+      vx += p.kx; vy += p.ky;
+      const d = Math.pow(0.004, dt);
+      p.kx *= d; p.ky *= d;
+      if (Math.abs(p.kx) + Math.abs(p.ky) < 5) p.kx = p.ky = 0;
     }
     const ox = p.x, oy = p.y;
     if (vx || vy) this.movePlayer(p, vx * dt, vy * dt);
@@ -690,7 +717,11 @@ export class Game {
   // ------------------------------------------------------------ damage
   damageEnemy(e, dmg, src, kx, ky, kind) {
     if (e.dead) return false;
-    if (e.type === 'sorcerer' && e.invis) return false;
+    if (e.invis) return false;
+    if (e.type === 'boss') {
+      if (!e.awake) wakeBoss(this, e);
+      if (e.act === 'stun') dmg *= 2;
+    }
     if (e.type === 'death') {
       if (kind !== 'bomb') {
         if (Math.random() < 0.25) this.text(e.x, e.y - 18, t('immune'), '#b0a8c0', 0.6, true);
@@ -702,7 +733,7 @@ export class Game {
     e.hp -= dmg;
     e.flash = 0.1;
     const [nx, ny] = norm(kx, ky);
-    const kb = kind === 'melee' ? 200 : kind === 'special' || kind === 'bomb' ? 280 : 110;
+    const kb = e.type === 'boss' ? 0 : kind === 'melee' ? 200 : kind === 'special' || kind === 'bomb' ? 280 : 110;
     e.kx += nx * kb; e.ky += ny * kb;
     if (kind !== 'bomb') this.text(e.x + rand(-6, 6), e.y - e.r - 6, Math.round(dmg), kind === 'special' ? '#ffd35a' : '#ffffff', 0.55, true);
     this.sfx('hit');
@@ -712,6 +743,7 @@ export class Game {
 
   killEnemy(e, src, silent = false) {
     e.dead = true;
+    if (e.type === 'boss') { bossDefeated(this, e, src); return; }
     if (e.parent) e.parent.children--;
     const col = ENEMY_COLORS[e.type];
     this.burst(e.x, e.y, col, silent ? 10 : 16, 160, 0.5, 3);
@@ -830,6 +862,7 @@ export class Game {
     const kdec = Math.pow(0.002, dt);
     for (const e of this.enemies) {
       if (e.dead) continue;
+      if (e.type === 'boss') { updateBoss(this, e, alive, dt); continue; }
       e.flash -= dt; e.atkCd -= dt; e.shootCd -= dt; e.stun -= dt; e.atk -= dt; e.anim += dt;
 
       let tgt = null, td = Infinity;
@@ -923,9 +956,10 @@ export class Game {
       l.t += dt;
       if (l.t >= l.dur) {
         l.done = true;
-        this.burst(l.x1, l.y1, '#8a8078', 14, 140, 0.5, 3);
+        const rad = l.fire ? 46 : 36;
+        this.burst(l.x1, l.y1, l.fire ? '#ff7a2a' : '#8a8078', l.fire ? 22 : 14, 150, 0.5, 3, !!l.fire);
         this.sfx('boom');
-        for (const p of this.players) if (p.alive && (p.x - l.x1) ** 2 + (p.y - l.y1) ** 2 < 36 * 36) this.hurtPlayer(p, l.dmg);
+        for (const p of this.players) if (p.alive && (p.x - l.x1) ** 2 + (p.y - l.y1) ** 2 < rad * rad) this.hurtPlayer(p, l.dmg);
       }
     }
     this.lobs = this.lobs.filter(l => !l.done);
@@ -937,6 +971,16 @@ export class Game {
       pr.life -= dt;
       if (pr.life <= 0) { pr.dead = true; continue; }
       pr.spin += dt * 18;
+      if (pr.homing) {
+        let best = null, bd = Infinity;
+        for (const p of this.players) if (p.alive) { const d = (p.x - pr.x) ** 2 + (p.y - pr.y) ** 2; if (d < bd) { bd = d; best = p; } }
+        if (best) {
+          const sp = Math.hypot(pr.vx, pr.vy), cur = Math.atan2(pr.vy, pr.vx);
+          const want = Math.atan2(best.y - pr.y, best.x - pr.x);
+          const turn = Math.max(-2.2 * dt, Math.min(2.2 * dt, Math.atan2(Math.sin(want - cur), Math.cos(want - cur))));
+          pr.vx = Math.cos(cur + turn) * sp; pr.vy = Math.sin(cur + turn) * sp; pr.ang = cur + turn;
+        }
+      }
       const steps = Math.max(1, Math.ceil((Math.hypot(pr.vx, pr.vy) * dt) / 10));
       const sdx = (pr.vx * dt) / steps, sdy = (pr.vy * dt) / steps;
       for (let s = 0; s < steps && !pr.dead; s++) {
@@ -1138,6 +1182,10 @@ export class Game {
       if (ef.kind === 'ring') {
         ctx.lineWidth = ef.w * (1 - k) + 2;
         ctx.beginPath(); ctx.arc(ef.x, ef.y, lerp(ef.r0, ef.r1, 1 - Math.pow(1 - k, 3)), 0, Math.PI * 2); ctx.stroke();
+      } else if (ef.kind === 'wave') {
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = ef.w;
+        ctx.beginPath(); ctx.arc(ef.x, ef.y, lerp(ef.r0, ef.r1, k), 0, Math.PI * 2); ctx.stroke();
       } else if (ef.kind === 'spin') {
         ctx.lineWidth = 5;
         for (let i = 0; i < 3; i++) {
@@ -1146,14 +1194,16 @@ export class Game {
         }
       }
     }
-    ctx.globalAlpha = 0.5 + Math.sin(time * 4) * 0.2;
-    ctx.fillStyle = '#ffd35a';
-    ctx.beginPath(); ctx.arc(this.exitPos.x, this.exitPos.y, 18, 0, Math.PI * 2); ctx.fill();
+    if (this.exitOpen) {
+      ctx.globalAlpha = 0.5 + Math.sin(time * 4) * 0.2;
+      ctx.fillStyle = '#ffd35a';
+      ctx.beginPath(); ctx.arc(this.exitPos.x, this.exitPos.y, 18, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
     // exit label + floating text (unlit)
-    if (vis(this.exitPos)) {
+    if (this.exitOpen && vis(this.exitPos)) {
       ctx.font = '8px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#000';
@@ -1209,9 +1259,10 @@ export class Game {
     };
     for (const p of this.players) light(p.x, p.y, p.alive ? 210 : 90, 1);
     for (const tc of this.torches) light(tc.x, tc.y + 10, 110 + Math.sin(time * 9 + tc.ph) * 8, 0.85);
-    light(this.exitPos.x, this.exitPos.y, 120, 0.9);
+    if (this.exitOpen) light(this.exitPos.x, this.exitPos.y, 120, 0.9);
+    for (const e of this.enemies) if (e.type === 'boss') light(e.x, e.y, e.kind === 'lich' ? 110 : 140, 0.55);
     for (const pr of this.projectiles) if (R.PROJ_GLOW[pr.kind]) light(pr.x, pr.y, 60, 0.7);
-    for (const ef of this.effects) if (ef.kind === 'ring') light(ef.x, ef.y, ef.r1 * 1.1, ef.life / ef.max);
+    for (const ef of this.effects) if (ef.kind === 'ring' || ef.kind === 'wave') light(ef.x, ef.y, ef.r1 * 1.1, ef.life / ef.max);
     for (const it of this.items) if (it.kind === 'amulet' || it.kind === 'potion') light(it.x, it.y, 40, 0.5);
     ctx.drawImage(lc, 0, 0, vw, vh);
 

@@ -7,7 +7,10 @@ const AMULETS = ['invuln', 'rapid', 'speed', 'multi', 'invis'];
 // Procedurally builds a dungeon: rooms + wide corridors (with loops), locked
 // rooms whose keys are always reachable, an exit in the farthest room,
 // monster generators, enemies and loot. Everything is in tile coordinates.
+export const BOSSES = ['dragon', 'lich', 'golem'];
+
 export function generateLevel(num, seed, playerCount = 1) {
+  if (num % 5 === 0) return generateBossLevel(num, seed, playerCount);
   const R = rng(seed);
   const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
   const pickR = arr => arr[Math.floor(R() * arr.length)];
@@ -213,5 +216,82 @@ export function generateLevel(num, seed, playerCount = 1) {
     start: { x: start.cx, y: start.cy },
     exit: { x: exitRoom.cx, y: exitRoom.cy },
     generators, enemies, items, torches,
+  };
+}
+
+// Every 5th level: a short approach with supplies, then a pillared arena.
+// The exit only appears (at the arena centre) once the boss is defeated.
+function generateBossLevel(num, seed, playerCount) {
+  const R = rng(seed);
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const pickR = arr => arr[Math.floor(R() * arr.length)];
+  const W = 56, H = 38;
+  const tiles = new Uint8Array(W * H).fill(T.WALL);
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? T.WALL : tiles[y * W + x]);
+  const set = (x, y, v) => { if (x > 0 && y > 0 && x < W - 1 && y < H - 1) tiles[y * W + x] = v; };
+  const room = (x, y, w, h) => ({ x, y, w, h, cx: x + (w >> 1), cy: y + (h >> 1) });
+  const carve = r => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) set(x, y, T.FLOOR); };
+  const corridor = (a, b) => {
+    const hline = (x0, x1, y) => { for (let x = Math.min(x0, x1); x <= Math.max(x0, x1) + 1; x++) { set(x, y, T.FLOOR); set(x, y + 1, T.FLOOR); } };
+    const vline = (y0, y1, x) => { for (let y = Math.min(y0, y1); y <= Math.max(y0, y1) + 1; y++) { set(x, y, T.FLOOR); set(x + 1, y, T.FLOOR); } };
+    if (R() < 0.5) { hline(a.cx, b.cx, a.cy); vline(a.cy, b.cy, b.cx); }
+    else { vline(a.cy, b.cy, a.cx); hline(a.cx, b.cx, b.cy); }
+  };
+
+  const start = room(3, (H >> 1) - 3, 7, 6);
+  const top = room(14, ri(3, 7), ri(6, 8), ri(5, 7));
+  const bottom = room(14, ri(H - 14, H - 12), ri(6, 8), ri(5, 7));
+  const hall = room(22, (H >> 1) - 3, 5, 6);
+  const arena = room(W - 27, (H - 18) >> 1, 24, 18);
+  const rooms = [start, top, bottom, hall, arena];
+  rooms.forEach(carve);
+  corridor(start, top); corridor(start, bottom); corridor(top, hall); corridor(bottom, hall);
+  corridor(hall, arena); corridor(top, arena);
+  for (const [dx, dy] of [[5, 4], [arena.w - 7, 4], [5, arena.h - 6], [arena.w - 7, arena.h - 6]]) {
+    for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) set(arena.x + dx + x, arena.y + dy + y, T.WALL);
+  }
+
+  const occ = new Uint8Array(W * H);
+  occ[arena.cy * W + arena.cx] = 1;
+  const inRoom = r => {
+    for (let a = 0; a < 60; a++) {
+      const x = ri(r.x, r.x + r.w - 1), y = ri(r.y, r.y + r.h - 1), i = y * W + x;
+      if (tiles[i] === T.FLOOR && !occ[i]) { occ[i] = 1; return { x, y }; }
+    }
+    return null;
+  };
+  const mids = [top, bottom, hall];
+  const items = [];
+  const put = (kind, r, sub) => { const p = inRoom(r); if (p) items.push({ kind, sub, ...p }); };
+  for (let i = 0; i < 4 + playerCount; i++) put(R() < 0.5 ? 'meat' : 'cider', pickR(mids));
+  for (let i = 0; i < 3; i++) put('potion', pickR(mids));
+  for (let i = 0; i < 6; i++) put(R() < 0.2 ? 'chest' : 'treasure', pickR(mids));
+  put('amulet', pickR(mids), pickR(['invuln', 'rapid', 'multi']));
+  // a little food in the arena corners
+  for (const [x, y] of [[arena.x + 1, arena.y + 1], [arena.x + arena.w - 2, arena.y + arena.h - 2]]) {
+    items.push({ kind: 'meat', x, y }); occ[y * W + x] = 1;
+  }
+
+  const pool = ['ghost', 'grunt'];
+  if (num >= 5) pool.push('demon', 'lobber');
+  if (num >= 10) pool.push('sorcerer');
+  const tier = () => 1 + (R() < 0.6 ? 1 : 0) + (R() < 0.3 ? 1 : 0);
+  const generators = [];
+  for (const r of [top, bottom]) { const p = inRoom(r); if (p) generators.push({ ...p, type: pickR(pool), tier: tier() }); }
+  const enemies = [];
+  for (let i = 0; i < 4 + (num >> 1); i++) { const p = inRoom(pickR(mids)); if (p) enemies.push({ ...p, type: pickR(pool), tier: tier() }); }
+
+  const torches = [];
+  for (let x = arena.x + 1; x < arena.x + arena.w; x += 3) if (at(x, arena.y - 1) === T.WALL) torches.push({ x, y: arena.y - 1 });
+  for (const r of [start, top, bottom]) if (at(r.cx, r.y - 1) === T.WALL) torches.push({ x: r.cx, y: r.y - 1 });
+
+  return {
+    W, H, tiles, rooms, num, seed,
+    start: { x: start.cx, y: start.cy },
+    exit: { x: arena.cx, y: arena.cy },
+    generators, enemies, items, torches,
+    arena: { x: arena.x, y: arena.y, w: arena.w, h: arena.h },
+    boss: { kind: BOSSES[(num / 5 - 1) % BOSSES.length], x: arena.cx + 6, y: arena.cy },
+    bossExitHidden: true,
   };
 }

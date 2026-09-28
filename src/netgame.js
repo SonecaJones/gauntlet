@@ -2,11 +2,15 @@ import { Game } from './game.js';
 import { HEROES } from './heroes.js';
 import { generateLevel } from './level.js';
 import { PROJ_GLOW } from './render.js';
+import { BOSS_ACTS } from './boss.js';
+import { BOSSES } from './level.js';
 import { clamp, lerp, norm } from './util.js';
+import { t } from './i18n.js';
+import { openExitTile } from './boss.js';
 
 // Compact wire encodings for entity types.
-const ET = ['ghost', 'grunt', 'demon', 'lobber', 'sorcerer', 'death'];
-const PK = ['axe', 'sword', 'fire', 'arrow', 'storm', 'efire', 'bolt'];
+const ET = ['ghost', 'grunt', 'demon', 'lobber', 'sorcerer', 'death', 'boss'];
+const PK = ['axe', 'sword', 'fire', 'arrow', 'storm', 'efire', 'bolt', 'orb'];
 const IK = ['meat', 'cider', 'potion', 'key', 'treasure', 'chest', 'amulet'];
 const AS = ['invuln', 'rapid', 'speed', 'multi', 'invis'];
 const INTERP_DELAY = 0.1;
@@ -34,7 +38,7 @@ export function snapshot(g, paused) {
   const idOf = o => o.id || (o.id = g.nextId++);
   const buffs = b => { const o = {}; for (const k in b) o[k] = r1(b[k]); return o; };
   return {
-    t: 's', tm: r2(performance.now() / 1000), lv: g.levelNum, ex: r2(g.exiting), fl: r2(g.flash), sh: r1(g.shake), pz: paused ? 1 : 0,
+    t: 's', tm: r2(performance.now() / 1000), lv: g.levelNum, ex: r2(g.exiting), fl: r2(g.flash), sh: r1(g.shake), pz: paused ? 1 : 0, xo: g.exitOpen ? 1 : 0,
     p: g.players.map(p => [
       p.slot, p.heroKey, p.ctrlId, r1(p.x), r1(p.y), r2(p.facing), p.moving ? 1 : 0, Math.ceil(p.hp), p.alive ? 1 : 0,
       p.score, p.keys, p.potions, r1(Math.max(0, p.specialCd)), r1(Math.max(0, p.dashCd)), p.hurt > 0 ? 1 : 0,
@@ -42,11 +46,15 @@ export function snapshot(g, paused) {
       Math.round(p.hero.speed * p.mods.speed * (p.buffs.speed ? 1.35 : 1)),
       p.autoTarget && !p.autoTarget.dead ? [Math.round(p.autoTarget.x), Math.round(p.autoTarget.y)] : 0,
     ]),
-    e: g.enemies.map(e => [idOf(e), ET.indexOf(e.type), e.tier, r1(e.x), r1(e.y), r2(e.face), e.flash > 0 ? 1 : 0, e.invis ? 1 : 0, e.atk > 0 ? 1 : 0, e.shootCd < 0.8 ? 1 : 0, r1(e.r)]),
+    e: g.enemies.map(e => {
+      const row = [idOf(e), ET.indexOf(e.type), e.tier, r1(e.x), r1(e.y), r2(e.face), e.flash > 0 ? 1 : 0, e.invis ? 1 : 0, e.atk > 0 ? 1 : 0, e.shootCd < 0.8 ? 1 : 0, r1(e.r)];
+      if (e.type === 'boss') row.push(BOSSES.indexOf(e.kind), BOSS_ACTS.indexOf(e.act), Math.round(e.hp), Math.round(e.maxHp), e.phase);
+      return row;
+    }),
     g: g.generators.map(q => [idOf(q), ET.indexOf(q.type), q.tier, q.maxTier, q.x, q.y, Math.round(q.hp), r1(q.hpPerTier), r2(q.spawnT), q.flash > 0 ? 1 : 0]),
     pr: g.projectiles.map(q => [idOf(q), PK.indexOf(q.kind), r1(q.x), r1(q.y), r2(q.ang)]),
     it: g.items.map(q => [idOf(q), IK.indexOf(q.kind), q.sub ? AS.indexOf(q.sub) : -1, q.x, q.y]),
-    lb: g.lobs.map(l => [r1(l.x0), r1(l.y0), r1(l.x1), r1(l.y1), r2(l.t), l.dur]),
+    lb: g.lobs.map(l => [r1(l.x0), r1(l.y0), r1(l.x1), r1(l.y1), r2(l.t), l.dur, l.fire ? 1 : 0]),
     ev: g.ev ? g.ev.splice(0) : [],
   };
 }
@@ -101,6 +109,7 @@ export class ClientGame extends Game {
     this.flash = Math.max(this.flash, s.fl);
     this.shake = Math.max(this.shake, s.sh);
     this.exiting = s.ex;
+    this.exitOpen = !!s.xo;
     for (const e of s.ev) this.applyEvent(e);
   }
 
@@ -111,12 +120,15 @@ export class ClientGame extends Game {
       case 'b': this.burst(e[1], e[2], e[3], e[4], e[5], e[6], e[7], !!e[8]); break;
       case 't': this.text(e[1], e[2], e[3], e[4], e[5], !!e[6]); break;
       case 'd': this.openDoorTiles(e[1], e[2]); break;
+      case 'X': openExitTile(this, e[1], e[2]); break;
+      case 'B': this.banner = { text: t(e[1]), sub: t(e[2]), t: 3.2 }; break;
+      case 'm': this.audio.startMusic(e[1]); break;
       case 'r': if (e[1] === this.myCtrl) this.app.input.rumble(this.app.net?.localId, e[2], e[3], e[4]); break;
       case 'e':
         if (e[1] === 'spin') {
           const p = this.players.find(q => q.slot === e[2]);
           if (p) this.effects.push({ kind: 'spin', p, life: e[3], max: e[3], color: e[4] });
-        } else this.effects.push({ kind: 'ring', x: e[2], y: e[3], r0: e[4], r1: e[5], life: e[6], max: e[6], color: e[7], w: e[8] });
+        } else this.effects.push({ kind: e[1], x: e[2], y: e[3], r0: e[4], r1: e[5], life: e[6], max: e[6], color: e[7], w: e[8] });
         break;
     }
   }
@@ -158,6 +170,7 @@ export class ClientGame extends Game {
     this.enemies = this.sync(this.cache.e, A.e, B && B.e, k, (o, r, pr) => {
       o.type = ET[r[1]]; o.tier = r[2]; lx(o, r, pr, 3); o.face = r[5];
       o.flash = r[6] ? 0.1 : 0; o.invis = !!r[7]; o.atk = r[8] ? 0.1 : -1; o.shootCd = r[9] ? 0 : 1; o.r = r[10];
+      if (o.type === 'boss') { o.kind = BOSSES[r[11]]; o.act = BOSS_ACTS[r[12]]; o.hp = r[13]; o.maxHp = r[14]; o.phase = r[15]; }
       o.anim += dt;
     });
     this.generators = this.sync(this.cache.g, A.g, B && B.g, k, (o, r) => {
@@ -172,7 +185,7 @@ export class ClientGame extends Game {
     this.items = this.sync(this.cache.it, A.it, null, 0, (o, r) => {
       o.kind = IK[r[1]]; o.sub = r[2] >= 0 ? AS[r[2]] : undefined; o.x = r[3]; o.y = r[4]; o.r = 11;
     });
-    this.lobs = A.lb.map(l => ({ x0: l[0], y0: l[1], x1: l[2], y1: l[3], t: Math.min(l[5], l[4] + Math.max(0, rt - a.tm)), dur: l[5] }));
+    this.lobs = A.lb.map(l => ({ x0: l[0], y0: l[1], x1: l[2], y1: l[3], t: Math.min(l[5], l[4] + Math.max(0, rt - a.tm)), dur: l[5], fire: !!l[6] }));
 
     // Players: others interpolated, our own predicted locally.
     const latestRows = new Map(this.latest.p.map(r => [r[2], r]));
