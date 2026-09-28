@@ -105,13 +105,14 @@ export class Game {
     this.gameOver = false;
     this.computeFlow();
     this.updateCamera(0, true);
-    if (n === 1) this.say(t('welcome', { hero: this.players.map(p => heroName(p.heroKey)).join(', ') }), true);
-    else this.say(pick(t('level_voice')), true);
+    if (n === 1) this.say(this.players.length === 1 ? 'welcome' : 'welcome_all', this.players.length === 1 ? this.players[0].heroKey : null);
+    else this.say('level_voice_' + Math.floor(Math.random() * 4));
     this.onLevel?.(this);
   }
 
   // ------------------------------------------------------------ helpers
-  say(text, force) { this.audio.say(text, force); this.ev?.push(['v', text]); }
+  // Narrator line by key (see audio.voice); heroKey fills in "{hero}".
+  say(key, heroKey = null) { this.audio.voice(key, heroKey); this.ev?.push(['v', key, heroKey]); }
   sfx(n) { this.audio.play(n); this.ev?.push(['s', n]); }
   addEffect(ef) {
     this.effects.push(ef);
@@ -249,7 +250,7 @@ export class Game {
     p.x = anchor.x; p.y = anchor.y; p.hp = 600; p.iframes = 2;
     this.burst(p.x, p.y, p.hero.light, 30, 160, 0.7, 3, true);
     this.text(p.x, p.y - 30, t('joins', { hero: heroName(hero) }), p.hero.light, 2);
-    this.say(t('joins', { hero: heroName(hero) }), true);
+    this.say('joins', hero);
     this.sfx('revive');
   }
 
@@ -434,9 +435,8 @@ export class Game {
       if (hit) p.meleeT = 0.4;
     }
 
-    const name = heroName(p.heroKey);
-    if (p.hp < 200 && p.warn < 1) { p.warn = 1; this.say(t('needs_food', { hero: name }), true); }
-    else if (p.hp < 100 && p.warn < 2) { p.warn = 2; this.say(t('about_to_die', { hero: name }), true); }
+    if (p.hp < 200 && p.warn < 1) { p.warn = 1; this.say('needs_food', p.heroKey); }
+    else if (p.hp < 100 && p.warn < 2) { p.warn = 2; this.say('about_to_die', p.heroKey); }
     else if (p.hp > 300) p.warn = 0;
     if (p.hp <= 0) this.killPlayer(p);
   }
@@ -490,7 +490,7 @@ export class Game {
         if (p.revive >= 2.2) {
           p.alive = true; p.hp = 250; p.iframes = 2; p.revive = 0; p.warn = 0;
           this.burst(p.x, p.y, '#7dffa0', 40, 180, 0.8, 3, true);
-          this.say(t('revived', { hero: heroName(p.heroKey) }), true);
+          this.say('revived', p.heroKey);
           this.sfx('revive');
         }
       } else p.revive = Math.max(0, p.revive - dt * 0.5);
@@ -503,7 +503,7 @@ export class Game {
     this.shake = 10;
     this.sfx('death');
     this.rumble(p, 1, 1, 400);
-    this.say(t('fallen', { hero: heroName(p.heroKey) }), true);
+    this.say('fallen', p.heroKey);
   }
 
   hurtPlayer(p, dmg, ignoreArmor = false) {
@@ -980,7 +980,7 @@ export class Game {
       else {
         this.burst(it.x, it.y, '#c8743a', 16, 140, 0.5, 3);
         this.text(it.x, it.y - 16, '!!', '#ff6a6a', 1);
-        this.say(t('shot_food', { hero: heroName(o.heroKey) }), true);
+        this.say('shot_food', o.heroKey);
       }
       return;
     }

@@ -107,7 +107,7 @@ export class ClientGame extends Game {
   applyEvent(e) {
     switch (e[0]) {
       case 's': this.audio.play(e[1]); break;
-      case 'v': this.audio.say(e[1], true); break;
+      case 'v': this.audio.voice(e[1], e[2] || null); break;
       case 'b': this.burst(e[1], e[2], e[3], e[4], e[5], e[6], e[7], !!e[8]); break;
       case 't': this.text(e[1], e[2], e[3], e[4], e[5], !!e[6]); break;
       case 'd': this.openDoorTiles(e[1], e[2]); break;

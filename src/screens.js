@@ -288,7 +288,7 @@ export class SelectScreen {
     if (this.taken(s.cursor, s)) { this.app.audio.play('back'); return; }
     s.ready = true;
     this.app.audio.play('confirm');
-    this.app.audio.say(heroName(HERO_ORDER[s.cursor]), true);
+    this.app.audio.voice('hero', HERO_ORDER[s.cursor]);
     for (const o of this.slots) if (o !== s && !o.ready && o.cursor === s.cursor) o.cursor = this.freeFrom(o.cursor, 1, o);
   }
   clickCard(i, src) {
@@ -329,18 +329,26 @@ export class SelectScreen {
           if (local && !this.slots.some(x => !x.ctrlId.startsWith('net'))) { this.back(); return; }
         }
       } else if (c.back) { s.ready = false; this.countdown = null; this.app.audio.play('back'); }
+      else if (c.start && local && this.mode === 'host') { this.tryStart(); return; }
     }
-    const waitingNet = this.mode === 'host' && this.app.net?.status !== 'ready';
-    if (this.slots.length && this.slots.every(s => s.ready) && !waitingNet) {
+    // Local games start by themselves; online hosts press COMEÇAR so guests have time to join.
+    if (this.mode === 'local' && this.slots.length && this.slots.every(s => s.ready)) {
       if (this.countdown == null) this.countdown = 1.6;
       this.countdown -= dt;
       if (this.countdown <= 0) this.start();
     } else this.countdown = null;
   }
+  canStart() { return this.app.net?.status === 'ready' && this.slots.some(s => s.ready); }
+  tryStart() {
+    if (!this.canStart()) { this.app.audio.play('back'); return; }
+    this.app.audio.play('confirm');
+    this.start();
+  }
   back() { this.left = true; this.app.audio.play('back'); this.app.setScreen(new TitleScreen(this.app)); }
   start() {
     const app = this.app;
-    const specs = this.slots.map(s => ({ ctrlId: s.ctrlId, hero: HERO_ORDER[s.cursor] }));
+    const slots = this.mode === 'host' ? this.slots.filter(s => s.ready) : this.slots;
+    const specs = slots.map(s => ({ ctrlId: s.ctrlId, hero: HERO_ORDER[s.cursor] }));
     const opts = this.mode === 'host' ? { record: true, onLevel: g => app.net?.sendLevel(g) } : {};
     app.setScreen(new PlayScreen(app, new Game(app, specs, opts)));
   }
@@ -406,15 +414,30 @@ export class SelectScreen {
         txt(ctx, t('ready'), x + cw / 2, y + ch - 19, 10, '#111', 'center', PIX, false);
       }
     });
-    let fy = vh - 70;
+    const sb = this.app.safe ? this.app.safe.b : 0;
+    let fy = vh - 70 - sb;
     const devs = this.slots.map((s, i) => `P${i + 1}: ${deviceName(s.ctrlId)}`).join('   ');
-    if (devs) for (const l of wrap(ctx, devs, vw - 30, 8)) { txt(ctx, l, vw / 2, fy, 8, '#fff', 'center'); fy += 14; }
-    fy += 4;
-    let hint = t('join_hint');
-    if (this.countdown != null) hint = t('starting', { n: Math.ceil(this.countdown) });
-    else if (this.mode === 'client' && !this.slots.some(s => s.ctrlId === myCtrl)) hint = t('join_hint');
-    for (const l of wrap(ctx, hint, vw - 30, 8)) {
-      txt(ctx, l, vw / 2, fy, 8, this.countdown != null ? '#ffd35a' : '#b8a8d0', 'center'); fy += 14;
+    if (this.mode === 'host') {
+      // start button for the room owner
+      const ready = this.slots.filter(x => x.ready).length, ok = this.canStart();
+      const bw = Math.min(360, vw - 40), bh = 38, bx = (vw - bw) / 2, by = vh - bh - 12 - sb;
+      const label = !ok ? t('need_ready') : ready === this.slots.length ? '▶ ' + t('start_game') : '▶ ' + t('start_ready', { n: ready, m: this.slots.length });
+      const pulse = ok ? 0.75 + Math.sin(this.t * 5) * 0.25 : 1;
+      panel(ctx, bx, by, bw, bh, ok ? `rgba(90,60,10,${pulse})` : 'rgba(30,24,40,0.9)', ok ? '#ffd35a' : 'rgba(255,255,255,0.2)', 8);
+      txt(ctx, label, vw / 2, by + 14, Math.min(10, vw / 40), ok ? '#ffe9a0' : '#9a8ab8', 'center');
+      hit(this.buttons, bx, by, bw, bh, () => this.tryStart());
+      fy = by - 36;
+      if (devs) txt(ctx, devs, vw / 2, fy, 7, '#fff', 'center');
+      for (const l of wrap(ctx, t('host_hint'), vw - 30, 6)) { fy += 12; txt(ctx, l, vw / 2, fy, 6, '#b8a8d0', 'center'); }
+    } else {
+      if (devs) for (const l of wrap(ctx, devs, vw - 30, 8)) { txt(ctx, l, vw / 2, fy, 8, '#fff', 'center'); fy += 14; }
+      fy += 4;
+      let hint = t('join_hint');
+      if (this.countdown != null) hint = t('starting', { n: Math.ceil(this.countdown) });
+      else if (this.mode === 'client' && this.slots.find(x => x.ctrlId === myCtrl)?.ready) hint = t('waiting_start');
+      for (const l of wrap(ctx, hint, vw - 30, 8)) {
+        txt(ctx, l, vw / 2, fy, 8, this.countdown != null ? '#ffd35a' : '#b8a8d0', 'center'); fy += 14;
+      }
     }
     panel(ctx, 10, 10, 90, 28);
     txt(ctx, '◀ ' + t('back'), 55, 19, 8, '#fff', 'center');
@@ -434,7 +457,7 @@ export class PlayScreen {
     this.menu = 0;
     this.showMap = false;
     this.buttons = [];
-    app.audio.startMusic('dungeon');
+    app.audio.startMusic(game.levelNum % 2 ? 'dungeonA' : 'dungeonB');
   }
   pause() { if (!this.paused) { this.paused = true; this.menu = 0; this.app.audio.play('select'); } }
   controllers() {
@@ -672,8 +695,8 @@ export class GameOverScreen {
     this.rank = list.indexOf(entry);
     app.scores = list;
     app.saveScores();
-    app.audio.stopMusic();
-    app.audio.say(t('game_over'), true);
+    app.audio.startMusic('gameover');
+    app.audio.voice('game_over');
   }
   update(dt) {
     this.t += dt;

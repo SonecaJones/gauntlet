@@ -1,11 +1,15 @@
 {
   "name": "gauntlet-reforged",
   "version": "1.0.0",
-  "description": "Clone moderno do Gauntlet do NES em HTML5 Canvas, sem dependências.",
+  "description": "Clone moderno do Gauntlet do NES em HTML5 Canvas, sem depend\u00eancias.",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && for f in src/*.js; do node --check \"$f\" || exit 1; done"
+    "check": "node --check server.js && for f in src/*.js; do node --check \"$f\" || exit 1; done",
+    "voices": "node tools/make-voices.mjs"
+  },
+  "devDependencies": {
+    "mespeak": "2.0.2"
   }
 }

@@ -11,6 +11,13 @@ npm start            # servidor sem dependências (páginas + salas online)
 
 Qualquer servidor estático funciona (`npx serve`, `python3 -m http.server`...). Abrir o `index.html` direto do disco não funciona porque o jogo usa módulos ES.
 
+## Som
+
+- **Música no estilo do chip do NES** (2A03): duas ondas quadradas com duty cycle de 12,5/25/50%, triângulo no baixo, ruído na bateria e vibrato nas notas longas. As trilhas ficam em `src/music.js`, num formato de tracker fácil de editar (um compasso = 16 passos, `D5` toca, `-` segura, `.` silencia).
+  - Título: abertura da Tocata e Fuga em Ré menor de Bach (domínio público) seguida de um tema de masmorra.
+  - Níveis: duas trilhas originais que se alternam. Fim de jogo: vinheta curta.
+- **Narrador demoníaco**: as falas são geradas com o eSpeak (`npm run voices`, em `tools/make-voices.mjs`) e ficam em `voice/`. No jogo, passam por efeitos em tempo real: tom mais grave, duas vozes desafinadas, saturação, modulação em anel e eco de masmorra. A música abaixa enquanto ele fala.
+
 ## Celular
 
 - Controles de toque: joystick esquerdo move e o herói **mira e atira sozinho** no inimigo mais próximo à vista (dá para desligar na pausa ou mirar manualmente com o joystick direito). Botões » esquiva, ★ especial e ⚗ poção no canto direito.
@@ -36,6 +43,7 @@ Funciona **só com o navegador**, sem servidor próprio: os jogadores se conecta
 
 1. No título, escolha **Criar sala online**. Aparece um código de 4 letras e um link de convite (`?sala=ABCD`).
 2. Os amigos abrem o link, ou escolhem **Entrar em sala online** e digitam o código.
+3. Cada um escolhe um herói e fica PRONTO. O anfitrião clica em **COMEÇAR** (ou ENTER/START) quando todos tiverem entrado.
 
 - Até 4 heróis por partida, misturando jogadores locais (teclado/gamepads do anfitrião) e online. Até 7 convidados podem se conectar, e quem sobra assiste.
 - Dá para entrar no meio da partida: quem está assistindo aperta ENTER/START.
@@ -107,7 +115,9 @@ src/transport.js  transportes: WebRTC via PeerJS (padrão) ou WebSocket
 src/config.js     configuração do modo online (somente valores públicos)
 vendor/           biblioteca PeerJS
 src/netgame.js    snapshots do anfitrião; jogo do convidado com interpolação e predição
-src/audio.js      efeitos, música e narrador
+src/audio.js      efeitos, sequenciador estilo NES e narrador
+src/music.js      trilhas sonoras (formato tracker)
+voice/            falas do narrador (geradas por tools/make-voices.mjs)
 src/heroes.js     classes e relíquias
 src/enemies.js    atributos dos monstros
 src/i18n.js       textos PT-BR / EN
