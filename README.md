@@ -45,7 +45,7 @@ O `firebase.json` já está configurado (publica a raiz, ignora `server.js`, `RE
 
 Funciona **só com o navegador**, sem servidor próprio: os jogadores se conectam direto entre si por **WebRTC**, e o [PeerJS](https://peerjs.com) (serviço público e gratuito) é usado apenas para eles se encontrarem, por alguns segundos.
 
-1. No título, escolha **Criar sala online**. Aparece um código de 4 letras e um link de convite (`?sala=ABCD`).
+1. No título, escolha **Criar sala online**. Aparece um código de 4 letras; toque em **Convidar amigos** para mandar o link (`?sala=ABCD`) pelo WhatsApp, Discord etc. (no computador, o link é copiado).
 2. Os amigos abrem o link, ou escolhem **Entrar em sala online** e digitam o código.
 3. Cada um escolhe um herói e fica PRONTO. O anfitrião clica em **COMEÇAR** (ou ENTER/START) quando todos tiverem entrado.
 

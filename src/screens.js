@@ -53,19 +53,42 @@ function drawHeroes(ctx, app, list, hs, time) {
   });
 }
 
-// Room code badge shown in online lobbies.
-function roomBadge(ctx, app) {
+// Room code badge shown in online lobbies. For the host it is also the invite
+// button: share sheet on phones, clipboard elsewhere.
+let invite = null;  // { x, y, w, h, drawn, app } while the host badge is on screen
+let copiedAt = -1e9;
+// Sharing needs a real click (user activation), so it can't run from the game loop.
+window.addEventListener('click', e => {
+  if (!invite || performance.now() - invite.drawn > 300) return;
+  const { x, y, w, h, app } = invite;
+  if (e.clientX < x || e.clientX > x + w || e.clientY < y || e.clientY > y + h) return;
+  shareInvite(app);
+});
+async function shareInvite(app) {
   const net = app.net;
+  if (!net || net.status !== 'ready') return;
+  const url = net.inviteUrl(), text = t('invite_text', { code: net.code });
+  app.audio.play('select');
+  if (app.isTouch && navigator.share) {
+    try { await navigator.share({ title: 'Cryptfall', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); copiedAt = performance.now(); } catch { window.prompt(t('copy_link'), url); }
+}
+function roomBadge(ctx, app, buttons) {
+  const net = app.net;
+  invite = null;
   if (!net) return;
   const { vw } = app;
-  const w = Math.min(260, vw - 130);
-  panel(ctx, vw - w - 10, 8, w, 44, 'rgba(20,12,34,0.9)', '#7ad0ff88');
+  const w = Math.min(260, vw - 130), x = vw - w - 10, host = net.role === 'host' && net.status === 'ready';
+  panel(ctx, x, 8, w, 44, host ? 'rgba(40,26,12,0.92)' : 'rgba(20,12,34,0.9)', host ? '#ffd35a' : '#7ad0ff88');
   if (net.status !== 'ready') { txt(ctx, t(net.role === 'host' ? 'creating' : 'connecting'), vw - w / 2 - 10, 24, 8, '#7ad0ff', 'center'); return; }
   txt(ctx, t('room', { code: net.code }), vw - w / 2 - 10, 15, 12, '#7ad0ff', 'center');
-  if (net.role === 'host') {
-    const url = net.inviteUrl();
-    const lines = wrap(ctx, url, w - 12, 5);
-    txt(ctx, lines[0] + (lines.length > 1 ? '…' : ''), vw - w / 2 - 10, 35, 5, '#b8c8e0', 'center');
+  if (host) {
+    const copied = performance.now() - copiedAt < 2000;
+    const a = 0.75 + Math.sin(performance.now() / 200) * 0.25;
+    txt(ctx, copied ? t('link_copied') : t('invite_btn'), vw - w / 2 - 10, 32, 9, copied ? '#8f8' : `rgba(255,233,160,${a})`, 'center');
+    invite = { x, y: 8, w, h: 44, drawn: performance.now(), app };
+    hit(buttons, x, 8, w, 44, () => {});  // swallow the tap; the click listener above shares
   } else txt(ctx, t('online_guest'), vw - w / 2 - 10, 35, 6, '#b8c8e0', 'center');
 }
 
@@ -468,7 +491,7 @@ export class SelectScreen {
     panel(ctx, 10, 10, 90, 28);
     txt(ctx, '◀ ' + t('back'), 55, 19, 8, '#fff', 'center');
     hit(this.buttons, 10, 10, 90, 28, () => this.back());
-    roomBadge(ctx, this.app);
+    roomBadge(ctx, this.app, this.buttons);
   }
 }
 
