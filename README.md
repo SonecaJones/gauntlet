@@ -108,6 +108,18 @@ Abra `/proto3d/` no servidor local ou no Firebase.
 - Os geradores (pilha de ossos e cabana) soltam novos monstros e podem ser destruídos.
 - O herói não morre no protótipo: o HUD conta os monstros abatidos e os golpes recebidos.
 - Parado por 3 s, o herói entra em modo demonstração.
+- **Chefes em 3D**: **B** (ou o botão Arena) troca entre a masmorra e as arenas
+  dos três chefes, que também abrem direto com `?chefe=dragon`, `?chefe=lich` ou
+  `?chefe=golem`. Eles usam os ataques do jogo 2D (`src/boss.js`), com barra de
+  vida e fúria na metade da vida:
+  - **Dragão Vermelho**: sopro de fogo que segue o herói, giro com a cauda e,
+    na fúria, chuva de meteoros (círculos vermelhos marcam onde caem).
+  - **Necromante**: anel de raios, esferas teleguiadas, invoca mortos-vivos e
+    some para reaparecer em outro ponto da arena.
+  - **Golem de Pedra**: investida (se bater na parede fica tonto e leva dano
+    dobrado), pancada com ondas de choque e arremesso de pedras.
+  - Quando o chefe cai, a saída se abre no centro da arena. Na demonstração, o
+    herói luta sozinho contra o chefe.
 
 Os modelos são gerados por código no Blender, sem arquivos de arte externos:
 
@@ -115,6 +127,7 @@ Os modelos são gerados por código no Blender, sem arquivos de arte externos:
 python -m venv bvenv && bvenv/bin/pip install bpy          # Blender 4.5 como módulo Python
 bvenv/bin/python tools/blender/warrior3d.py proto3d/models/warrior.glb [pasta_de_previews]
 bvenv/bin/python tools/blender/enemies3d.py all proto3d/models [pasta_de_previews]
+bvenv/bin/python tools/blender/bosses3d.py all proto3d/models [pasta_de_previews]
 node tools/embed-glb.mjs                                    # atualiza os .glb.js
 ```
 
@@ -157,7 +170,7 @@ voice/            falas do narrador (geradas por tools/make-voices.mjs)
 src/heroes.js     classes e relíquias
 src/enemies.js    atributos dos monstros
 src/i18n.js       textos PT-BR / EN
-proto3d/          protótipo 3D HD-2D (three.js): heróis, monstros (monsters.js), projéteis (shots.js), modelos .glb
-tools/blender/    scripts que modelam e animam heróis, monstros e geradores 3D no Blender
+proto3d/          protótipo 3D HD-2D (three.js): heróis, monstros (monsters.js), chefes (bosses.js), projéteis (shots.js), modelos .glb
+tools/blender/    scripts que modelam e animam heróis, monstros, chefes e geradores 3D no Blender
 vendor/three/     three.js e os addons usados pelo protótipo
 ```

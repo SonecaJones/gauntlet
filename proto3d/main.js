@@ -11,9 +11,12 @@ import { drawItem } from '../src/render.js';
 import { warrior, pixelize } from './sprite32.js';
 import { createShots } from './shots.js';
 import { createMonsters } from './monsters.js';
+import { createBoss, BOSS_KINDS, bossName } from './bosses.js';
 
 // ------------------------------------------------------------------ level
-const L = generateLevel(3, 20260929, 1);
+// ?chefe=dragon|lich|golem loads that boss's arena (levels 5, 10 and 15)
+const bossKind = BOSS_KINDS.includes(new URLSearchParams(location.search).get('chefe')) ? new URLSearchParams(location.search).get('chefe') : null;
+const L = generateLevel(bossKind ? 5 * (BOSS_KINDS.indexOf(bossKind) + 1) : 3, 20260929, 1);
 const { W, H, tiles } = L;
 const tileAt = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? T.WALL : tiles[y * W + x]);
 const solid = (x, y) => { const t = tileAt(x, y); return t === T.WALL || t === T.DOOR; };
@@ -103,12 +106,20 @@ const floorCanvas = canvas(W * PX, H * PX, (g) => {
       g.strokeStyle = '#231c30'; g.lineWidth = 1; g.beginPath();
       g.moveTo(px + 6, py + 8); g.lineTo(px + 13, py + 15); g.lineTo(px + 11, py + 22); g.lineTo(px + 20, py + 27); g.stroke();
     }
-    if (t === T.EXIT) {
-      g.fillStyle = '#07040c'; g.fillRect(px + 3, py + 3, PX - 6, PX - 6);
-      for (let i = 0; i < 4; i++) { g.fillStyle = `rgb(${90 - i * 18},${76 - i * 15},${110 - i * 20})`; g.fillRect(px + 5 + i * 2, py + 5 + i * 6, PX - 10 - i * 4, 4); }
-    }
+    if (t === T.EXIT) drawExit(g, px, py);
   }
 });
+// stairs down; in a boss arena they only open once the boss falls
+function drawExit(g, px, py) {
+  g.fillStyle = '#07040c'; g.fillRect(px + 3, py + 3, PX - 6, PX - 6);
+  for (let i = 0; i < 4; i++) { g.fillStyle = `rgb(${90 - i * 18},${76 - i * 15},${110 - i * 20})`; g.fillRect(px + 5 + i * 2, py + 5 + i * 6, PX - 10 - i * 4, 4); }
+}
+let exitOpen = !L.bossExitHidden;
+function openExit() {
+  drawExit(floorCanvas.getContext('2d'), L.exit.x * PX, L.exit.y * PX);
+  floor.material.map.needsUpdate = true;
+  exitOpen = true;
+}
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ map: tex(floorCanvas), roughness: 0.92, metalness: 0 }));
 floor.rotation.x = -Math.PI / 2;
 floor.position.set(W / 2, 0, H / 2);
@@ -328,6 +339,16 @@ function applyView() {
 document.getElementById('hero')?.addEventListener('click', () => { nextHero(); lastInput = performance.now(); });
 document.getElementById('toggle')?.addEventListener('click', () => { view = view === '3d' ? 'sprite' : '3d'; applyView(); lastInput = performance.now(); });
 document.getElementById('atk')?.addEventListener('click', () => { attack(); lastInput = performance.now(); });
+// B / button: masmorra → Dragão → Necromante → Golem → masmorra (reloads the level)
+function nextArena() {
+  const next = [null, ...BOSS_KINDS][([null, ...BOSS_KINDS].indexOf(bossKind) + 1) % (BOSS_KINDS.length + 1)];
+  location.search = next ? `?chefe=${next}` : '';
+}
+const arenaBtn = document.getElementById('arena');
+if (arenaBtn) {
+  arenaBtn.textContent = `Arena: ${bossKind ? bossName(bossKind) : 'masmorra'}  ⇄`;
+  arenaBtn.addEventListener('click', nextArena);
+}
 
 // loot from the real level (monsters and generators live in monsters.js)
 const actors = [];
@@ -355,11 +376,16 @@ const dust = particles(120, 0x9a8ac8, 0.05);
 
 // projectiles and sparks, monsters and generators
 const shots = createShots({ scene, solid, glowTex });
-let shotKind = null, shotDelay = 0, meleeDelay = 0, shake = 0, hurt = 0;
-function heroHit(type, x, y) {
+let shotKind = null, shotDelay = 0, meleeDelay = 0, shake = 0, hurt = 0, hurtCd = 0;
+const knock = new THREE.Vector2();
+function heroHit(type, x, y, force = 0) {
   // the hero can't die in this prototype: just sparks, a shake and a counter
+  // (breath puffs arrive in streams, so they count once per moment)
+  if (force) knock.set(heroPos.x - x, heroPos.y - y).normalize().multiplyScalar(force);
+  if (hurtCd > 0) return;
+  hurtCd = 0.25;
   shots.burst(heroPos.x, 0.6, heroPos.y, 18, 2, 0.35, 0xff3030);
-  shake = 0.18;
+  shake = Math.max(shake, 0.18);
   hurt++;
 }
 const monsters = createMonsters({
@@ -367,19 +393,38 @@ const monsters = createMonsters({
   fire: (kind, x, y, dir, owner, dist) => shots.fire(kind, x, y, dir, owner, dist), onHeroHit: heroHit,
 });
 monsters.ready.then(() => { rendered = 0; });
+// the arena's boss (only on boss levels)
+const bossFight = L.boss && createBoss({
+  scene, level: L, loadModel, solid, heroBlocked: (x, y) => blocked(x, y), shots, monsters, onHeroHit: heroHit,
+  onShake: s => { shake = Math.max(shake, s); },
+  onDefeat: () => { openExit(); victory = time; },
+});
+bossFight?.ready.then(() => { rendered = 0; }, err => console.error('boss', err));
+let victory = 0;
 const aim = new THREE.Vector2();
 function updateCombat(dt) {
   if (shotDelay > 0 && (shotDelay -= dt) <= 0 && model) shots.fire(shotKind, heroPos.x, heroPos.y, aim.set(Math.sin(modelAngle), Math.cos(modelAngle)), 'hero');
   if (meleeDelay > 0 && (meleeDelay -= dt) <= 0 && model) monsters.hitArc(heroPos.x, heroPos.y, modelAngle, 1.35, 1.1, heroName === 'warrior' ? 40 : 32);
+  hurtCd -= dt;
   monsters.update(dt, time, heroPos.x, heroPos.y);
+  bossFight?.update(dt, time, heroPos);
   shots.update(dt, time, {
     hitHero: (x, z, r, kind) => {
       if (Math.hypot(x - heroPos.x, z - heroPos.y) > r + 0.2) return false;
-      heroHit(kind, x, z);
+      heroHit(kind, x, z, kind === 'meteor' || kind === 'boulder' ? 6 : 0);
       return true;
     },
     hitMonsters: (x, z, r, dmg, splash) => monsters.hitAt(x, z, r, dmg, splash),
+    target: heroPos,
+    onLand: () => { shake = Math.max(shake, 0.25); },
   });
+  // knockback slides the hero, stopping at walls
+  if (knock.lengthSq() > 0.01) {
+    const nx = heroPos.x + knock.x * dt, ny = heroPos.y + knock.y * dt;
+    if (!blocked(nx, heroPos.y)) heroPos.x = nx;
+    if (!blocked(heroPos.x, ny)) heroPos.y = ny;
+    knock.multiplyScalar(Math.pow(0.004, dt));
+  } else knock.set(0, 0);
 }
 
 // ------------------------------------------------------------------ post-processing
@@ -412,7 +457,7 @@ composer.addPass(new OutputPass());
 
 // ------------------------------------------------------------------ input
 const keys = new Set();
-addEventListener('keydown', e => { keys.add(e.code); lastInput = performance.now(); if (e.code === 'Space') attack(); if (e.code === 'KeyH') nextHero(); if (e.code === 'KeyT') { view = view === '3d' ? 'sprite' : '3d'; applyView(); } });
+addEventListener('keydown', e => { keys.add(e.code); lastInput = performance.now(); if (e.code === 'Space') attack(); if (e.code === 'KeyH') nextHero(); if (e.code === 'KeyB') nextArena(); if (e.code === 'KeyT') { view = view === '3d' ? 'sprite' : '3d'; applyView(); } });
 addEventListener('keyup', e => keys.delete(e.code));
 let stick = null, lastInput = -1e9;
 renderer.domElement.addEventListener('pointerdown', e => { stick = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY }; lastInput = performance.now(); });
@@ -446,7 +491,7 @@ function blocked(x, y) {
 
 // ------------------------------------------------------------------ loop
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-let rendered = 0, last = performance.now(), walk = 0, facingLeft = false, frames = 0, fpsT = 0, time = 0;
+let rendered = 0, last = performance.now(), walk = 0, facingLeft = false, frames = 0, fpsT = 0, time = 0, zoom = 1;
 const fpsEl = document.getElementById('fps');
 function tick(now) {
   const dt = Math.max(0, Math.min(0.05, ((now || performance.now()) - last) / 1000));
@@ -457,7 +502,14 @@ function tick(now) {
   if (stick) { mx = (stick.x - stick.sx) / 50; my = (stick.y - stick.sy) / 50; }
   if (keys.size || stick) lastInput = Math.max(lastInput, performance.now());   // holding input is input
   const demo = now - lastInput > 3000 && demoPath.length;
-  if (demo) {
+  // in the demo the hero duels an awake boss: keeps its range, circles, strikes
+  const bb = bossFight?.boss;
+  const duel = demo && bb && bb.awake && !bb.dead && Math.hypot(bb.x - heroPos.x, bb.y - heroPos.y) < 9;
+  if (duel) {
+    const dx = bb.x - heroPos.x, dy = bb.y - heroPos.y, d = Math.hypot(dx, dy) || 1;
+    const want = HEROES[heroName].shot ? 4.5 : bb.r + 0.9;
+    mx = dx / d * (d - want) - dy / d * 0.7; my = dy / d * (d - want) + dx / d * 0.7;
+  } else if (demo) {
     const [tx, ty] = demoPath[demoIdx % demoPath.length];
     mx = tx - heroPos.x; my = ty - heroPos.y;
     if (Math.hypot(mx, my) < 0.15) demoIdx = (demoIdx + 1) % demoPath.length;
@@ -482,8 +534,9 @@ function tick(now) {
       const want = Math.atan2(mx, my);
       modelAngle += Math.atan2(Math.sin(want - modelAngle), Math.cos(want - modelAngle)) * Math.min(1, dt * 14);
     }
+    if (duel) modelAngle = Math.atan2(bb.x - heroPos.x, bb.y - heroPos.y);
     model.rotation.y = modelAngle;
-    if (demo && (time % 5) < dt) attack();
+    if (duel ? (time % 0.8) < dt : demo && (time % 5) < dt) attack();
     if (attackT > 0) { attackT -= dt; if (attackT <= 0) layers.U = null; }
     const base = speed > 2.2 ? 'Run' : speed > 0.2 ? 'Walk' : 'Idle';
     setLayer('L', base);
@@ -513,7 +566,7 @@ function tick(now) {
     l.intensity = 16 + Math.sin(time * 13 + t.ph) * 1.6 + Math.sin(time * 7.3 + t.ph * 2) * 1.1;
   });
   for (const t of torches) t.flame.scale.setScalar(0.38 + Math.sin(time * 16 + t.ph) * 0.05);
-  exitLight.intensity = 2.2 + Math.sin(time * 3) * 0.6;
+  exitLight.intensity = exitOpen ? 2.2 + Math.sin(time * 3) * 0.6 : 0;
 
   // embers rise from nearby torches; dust drifts around the hero
   const ep = embers.p.geometry.attributes.position.array;
@@ -540,11 +593,16 @@ function tick(now) {
 
   updateCombat(dt);
 
-  // camera: 3/4 view, slightly lagging behind the hero
+  // camera: 3/4 view, slightly lagging behind the hero; it pulls back and
+  // centres between hero and boss during a boss fight
   const portrait = innerHeight > innerWidth;
-  camPos.set(heroPos.x, portrait ? 9.5 : 6.4, heroPos.y + (portrait ? 8.6 : 7.6));
+  const fight = bb && bb.awake && !bb.dead;
+  zoom += ((fight ? 1.4 : 1) - zoom) * Math.min(1, dt * 1.5);
+  const fx = fight ? heroPos.x * 0.7 + bb.x * 0.3 : heroPos.x, fz = fight ? heroPos.y * 0.7 + bb.y * 0.3 : heroPos.y;
+  const back = (portrait ? 8.6 : 7.6) * zoom;
+  camPos.set(fx, (portrait ? 9.5 : 6.4) * zoom, fz + back);
   camera.position.lerp(camPos, 1 - Math.pow(0.02, dt));
-  camLook.set(camera.position.x, 0.5, camera.position.z - (portrait ? 8.6 : 7.6) - 0.3);
+  camLook.set(camera.position.x, 0.5, camera.position.z - back - 0.3);
   camera.lookAt(camLook);
   if (shake > 0) {
     shake -= dt;
@@ -557,7 +615,11 @@ function tick(now) {
   // so every material samples them (and its own texture) correctly.
   if (++rendered === 3) scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
   frames++; fpsT += dt;
-  if (fpsT > 0.5) { if (fpsEl) fpsEl.textContent = `${Math.round(frames / fpsT)} fps · monstros abatidos: ${monsters.kills} · golpes recebidos: ${hurt}`; frames = 0; fpsT = 0; }
+  if (fpsT > 0.5) {
+    const win = victory ? ` · ${bossName(bb.kind)} derrotado! A saída abriu.` : '';
+    if (fpsEl) fpsEl.textContent = `${Math.round(frames / fpsT)} fps · monstros abatidos: ${monsters.kills} · golpes recebidos: ${hurt}${win}`;
+    frames = 0; fpsT = 0;
+  }
   requestAnimationFrame(tick);
 }
 camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6);
@@ -571,4 +633,4 @@ addEventListener('resize', () => {
   tilt.uniforms.res.value.set(innerWidth, innerHeight);
 });
 
-window.proto = { dbg: () => dbg, combat: () => ({ shotDelay, meleeDelay, attackT, hurt, kills: monsters.kills }), updateCombat, useHero, heroes: HEROES, shots, monsters, layers: () => [layers.L?.getClip().name, layers.U?.getClip().name], face: a => { modelAngle = a; lastInput = performance.now() + 60000; }, get model() { return model; }, attack, setView: v => { view = v; applyView(); }, camera, renderer, scene, torchLights, heroLight, hero, heroFrames, heroPos, demoPath, setDemo: i => { demoIdx = i; heroPos.set(demoPath[i][0], demoPath[i][1]); camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6); } };
+window.proto = { boss: bossFight, dbg: () => dbg, combat: () => ({ shotDelay, meleeDelay, attackT, hurt, kills: monsters.kills }), updateCombat, useHero, heroes: HEROES, shots, monsters, layers: () => [layers.L?.getClip().name, layers.U?.getClip().name], face: a => { modelAngle = a; lastInput = performance.now() + 60000; }, get model() { return model; }, attack, setView: v => { view = v; applyView(); }, camera, renderer, scene, torchLights, heroLight, hero, heroFrames, heroPos, demoPath, setDemo: i => { demoIdx = i; heroPos.set(demoPath[i][0], demoPath[i][1]); camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6); } };

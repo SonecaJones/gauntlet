@@ -22,6 +22,8 @@ export function createMonsters({ scene, level, loadModel, blocked, burst, fire, 
   const templates = {};
   const monsters = [];
   const generators = [];
+  // other things the hero can hit (bosses): { x, y, r, dead, hit(dmg, fromX, fromY) -> bool }
+  const targets = [];
   let kills = 0;
 
   const ready = Promise.all([...MONSTER_TYPES, 'gen_bones', 'gen_hut'].map(name => loadModel(name).then(gltf => {
@@ -170,13 +172,23 @@ export function createMonsters({ scene, level, loadModel, blocked, burst, fire, 
       const off = Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dy) - angle), Math.cos(Math.atan2(dx, dy) - angle)));
       if (Math.hypot(dx, dy) < range + 0.3 && off < arc) { damageGen(g, dmg); hit = true; }
     }
+    for (const t of targets) {
+      if (t.dead) continue;
+      const dx = t.x - x, dy = t.y - y, d = Math.hypot(dx, dy);
+      const off = Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dy) - angle), Math.cos(Math.atan2(dx, dy) - angle)));
+      // big bodies: the blow only has to reach their edge
+      if (d < range + t.r * 0.8 && (off < arc + 0.3 || d < t.r + 0.3) && t.hit(dmg, x, y)) hit = true;
+    }
     return hit;
   }
   // shots: first monster or generator within r; bolts also splash
   function hitAt(x, y, r, dmg, splash = 0) {
     const m = monsters.find(k => !k.dead && Math.hypot(k.x - x, k.y - y) < r + 0.15);
     const g = !m && generators.find(k => !k.dead && Math.hypot(k.x - x, k.y - y) < r + 0.35);
-    if (!m && !g) return false;
+    if (!m && !g) {
+      const t = targets.find(k => !k.dead && Math.hypot(k.x - x, k.y - y) < r + k.r * 0.85);
+      return !!t && t.hit(dmg, x, y);
+    }
     if (m) damage(m, dmg, x - (m.x - x), y - (m.y - y));
     if (g) damageGen(g, dmg);
     if (splash) for (const k of monsters) if (!k.dead && k !== m && Math.hypot(k.x - x, k.y - y) < splash) damage(k, dmg * 0.5, x, y);
@@ -279,5 +291,5 @@ export function createMonsters({ scene, level, loadModel, blocked, burst, fire, 
     }
   }
 
-  return { ready, update, hitArc, hitAt, monsters, generators, get kills() { return kills; }, spawn };
+  return { ready, update, hitArc, hitAt, monsters, generators, targets, get kills() { return kills; }, spawn, kill };
 }

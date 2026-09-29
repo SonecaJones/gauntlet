@@ -13,14 +13,21 @@
   #btns button:focus-visible { outline: 2px solid #ffd35a; outline-offset: 2px; }
   #hud b { color: #ffd35a; font-size: 14px; letter-spacing: 0.08em; }
   #hud span { color: #b8a8d0; }
+  #boss { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); text-align: center; color: #ffe9a0; font: 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.12em; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  #boss[hidden] { display: none; }
+  #boss .bar { margin-top: 4px; height: 10px; border: 1px solid #ffd35a; background: rgba(20,8,20,0.8); border-radius: 3px; overflow: hidden; }
+  #bossHp { display: block; height: 100%; width: 100%; background: linear-gradient(#ff7a4a, #c8261c); transition: width 0.15s; }
+  #boss.rage #bossHp { background: linear-gradient(#ff3a3a, #8a0a0a); }
+  @media (max-width: 700px) { #boss { top: auto; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); } }
 </style>
 <script type="importmap">
 { "imports": { "three": "../vendor/three/three.module.js", "three/addons/": "../vendor/three/addons/" } }
 </script>
 </head>
 <body>
-<div id="hud"><b>GAUNTLET · PROTÓTIPO HD-2D</b><br><span>WASD / setas / arraste para andar · Espaço golpeia os monstros · H troca o herói · T alterna 3D/sprite · parado = demonstração</span><br><span id="fps"></span></div>
-<div id="btns"><button id="hero">Herói: Guerreiro  ⇄</button><button id="toggle">Ver: Modelo 3D  ⇄</button><button id="atk">Golpe (Espaço)</button></div>
+<div id="hud"><b>GAUNTLET · PROTÓTIPO HD-2D</b><br><span>WASD / setas / arraste para andar · Espaço golpeia os monstros · H troca o herói · B troca a arena (chefes) · T alterna 3D/sprite · parado = demonstração</span><br><span id="fps"></span></div>
+<div id="boss" hidden><b id="bossName"></b><div class="bar"><i id="bossHp"></i></div></div>
+<div id="btns"><button id="arena">Arena: masmorra  ⇄</button><button id="hero">Herói: Guerreiro  ⇄</button><button id="toggle">Ver: Modelo 3D  ⇄</button><button id="atk">Golpe (Espaço)</button></div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 // Projectiles and hit sparks for the HD-2D prototype.
 //   hero shots:  bolt (wizard, with its own light), arrow (elf)
 //   enemy shots: fireball (demon), rock (lobber, arcs), magic (sorcerer)
+//   boss shots:  flame (dragon breath), meteor (dragon, lands with a blast),
+//                hex and homing orb (necromancer), boulder (golem, lands with a blast)
 import * as THREE from 'three';
 
 const KINDS = {
@@ -9,11 +11,16 @@ const KINDS = {
   fireball: { speed: 5.5, life: 1.6, y: 0.62, color: 0xff7a2a, trail: 2, pop: 26, popSpeed: 2.2, hitR: 0.4 },
   rock: { speed: 4.2, life: 2.0, y: 0.5, color: 0xb0a898, trail: 0, pop: 12, popSpeed: 1.4, hitR: 0.4, gravity: 9 },
   magic: { speed: 6.5, life: 1.4, y: 0.7, color: 0x7dfcff, trail: 2, pop: 20, popSpeed: 2.0, hitR: 0.4 },
+  flame: { speed: 7.5, life: 0.75, y: 0.9, color: 0xff8a2a, trail: 0, pop: 3, popSpeed: 0.8, hitR: 0.35, grow: true },
+  meteor: { speed: 6, life: 3, y: 2.2, color: 0xff6a20, trail: 3, pop: 60, popSpeed: 3.4, hitR: 0.4, gravity: 12, aoe: 0.95 },
+  hex: { speed: 6.2, life: 2.5, y: 0.8, color: 0x7dff8a, trail: 1, pop: 10, popSpeed: 1.6, hitR: 0.35 },
+  orb: { speed: 3.75, life: 5, y: 0.8, color: 0x5aff7a, trail: 2, pop: 26, popSpeed: 2.2, hitR: 0.42, homing: 1.7 },
+  boulder: { speed: 5.5, life: 3, y: 1.4, color: 0xa09080, trail: 0, pop: 36, popSpeed: 2.6, hitR: 0.5, gravity: 11, aoe: 0.85 },
 };
 
 export function createShots({ scene, solid, glowTex }) {
   // sparks: additive points with a colour per particle
-  const N = 400;
+  const N = 900;
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -48,6 +55,15 @@ export function createShots({ scene, solid, glowTex }) {
     bolt: () => new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: 0xc8f2ff })),
     fireball: () => new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 1), new THREE.MeshBasicMaterial({ color: 0xffb040 })),
     magic: () => new THREE.Mesh(new THREE.OctahedronGeometry(0.08), new THREE.MeshBasicMaterial({ color: 0xb8ffff })),
+    hex: () => new THREE.Mesh(new THREE.OctahedronGeometry(0.09), new THREE.MeshBasicMaterial({ color: 0xb8ffc0 })),
+    orb: () => new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshBasicMaterial({ color: 0x9aff9a })),
+    meteor: () => new THREE.Mesh(new THREE.DodecahedronGeometry(0.2, 0), new THREE.MeshBasicMaterial({ color: 0xffa040 })),
+    flame: () => new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff9030, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false })),
+    boulder: () => {
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.26, 0), new THREE.MeshStandardMaterial({ color: 0x6a625c, roughness: 0.95, flatShading: true }));
+      m.castShadow = true;
+      return m;
+    },
     rock: () => {
       const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 0), new THREE.MeshStandardMaterial({ color: 0x8a8278, roughness: 0.95, flatShading: true }));
       m.castShadow = true;
@@ -75,50 +91,91 @@ export function createShots({ scene, solid, glowTex }) {
   const pool = [];   // inactive shots, reused by kind
   const live = [];
 
-  // dir: unit Vector2 on the floor plane (x, z). Rocks are lobbed to `dist`.
-  function fire(kind, x, z, dir, owner, dist = 4) {
+  // a red ring on the floor where a lobbed blast will land
+  const markGeo = new THREE.RingGeometry(0.75, 1, 32).rotateX(-Math.PI / 2);
+  const newMark = () => {
+    const m = new THREE.Mesh(markGeo, new THREE.MeshBasicMaterial({ color: 0xff3a20, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    scene.add(m);
+    return m;
+  };
+
+  // dir: Vector2 on the floor plane (x, z), unit length for the kind's own
+  // speed (longer or shorter to go faster or slower). Lobbed kinds land at
+  // `dist`. With y0 the shot starts exactly at (x, y0, z), e.g. a boss's mouth.
+  function fire(kind, x, z, dir, owner, dist = 4, y0 = null) {
     const K = KINDS[kind];
     let s = pool.findIndex(p => p.kind === kind);
     s = s >= 0 ? pool.splice(s, 1)[0] : { kind, obj: meshes[kind]() };
     if (!s.obj.parent) scene.add(s.obj);
     s.obj.visible = true;
     s.owner = owner;
-    s.x = x + dir.x * 0.45; s.z = z + dir.y * 0.45; s.y = K.y;
+    const off = y0 === null ? 0.45 : 0;
+    s.x = x + dir.x * off; s.z = z + dir.y * off; s.y = y0 ?? K.y;
     s.vx = dir.x * K.speed; s.vz = dir.y * K.speed; s.vy = 0;
-    s.life = K.life;
+    s.life = s.max = K.life;
     if (K.gravity) {  // lob: flight time to reach the target, then the needed upward speed
-      const t = Math.max(0.35, dist / K.speed);
-      s.vy = (K.gravity * t) / 2 - K.y / t;
+      const sp = Math.hypot(dir.x, dir.y) * K.speed || K.speed;
+      const t = Math.max(0.35, dist / sp);
+      s.vy = (K.gravity * t) / 2 - s.y / t;
       s.life = t + 0.2;
+      if (K.aoe) {
+        s.mark = s.mark || newMark();
+        s.mark.visible = true;
+        s.mark.position.set(s.x + s.vx * t, 0.04, s.z + s.vz * t);
+        s.mark.scale.setScalar(K.aoe);
+      }
     }
     s.obj.rotation.set(0, Math.atan2(dir.x, dir.y), 0);
-    if (kind === 'bolt' || kind === 'magic' || kind === 'fireball') burst(s.x, s.y, s.z, 12, 1.4, 0.3, K.color);
+    if (kind === 'bolt' || kind === 'magic' || kind === 'fireball' || kind === 'orb') burst(s.x, s.y, s.z, 12, 1.4, 0.3, K.color);
     live.push(s);
   }
 
   function pop(s) {
     const K = KINDS[s.kind];
-    burst(s.x, s.y, s.z, K.pop, K.popSpeed, 0.4, K.color);
+    burst(s.x, s.y, s.z, K.pop, K.popSpeed, K.aoe ? 0.7 : 0.4, K.color);
+    if (K.aoe) burst(s.x, 0.2, s.z, 24, 2.2, 0.6, 0xffd070);
     if (s.kind === 'bolt') flash = 0.3;
     s.obj.visible = false;
+    if (s.mark) s.mark.visible = false;
     pool.push(s);
   }
 
-  // hitHero(x, z, r) -> bool, hitMonsters(x, z, r, dmg, splash) -> bool
-  function update(dt, time, { hitHero, hitMonsters }) {
+  // hitHero(x, z, r, kind) -> bool, hitMonsters(x, z, r, dmg, splash) -> bool,
+  // target: {x, y} that homing shots steer to, onLand(kind, x, z) for blasts
+  function update(dt, time, { hitHero, hitMonsters, target, onLand }) {
     let boltOn = null;
     for (let i = live.length - 1; i >= 0; i--) {
       const s = live[i], K = KINDS[s.kind];
       s.life -= dt;
+      if (K.homing && target) {  // turn toward the target, keeping the speed
+        const want = Math.atan2(target.x - s.x, target.y - s.z), cur = Math.atan2(s.vx, s.vz);
+        const a = cur + Math.max(-K.homing * dt, Math.min(K.homing * dt, Math.atan2(Math.sin(want - cur), Math.cos(want - cur))));
+        const sp = Math.hypot(s.vx, s.vz);
+        s.vx = Math.sin(a) * sp; s.vz = Math.cos(a) * sp;
+      }
       s.x += s.vx * dt; s.z += s.vz * dt;
       if (K.gravity) { s.vy -= K.gravity * dt; s.y += s.vy * dt; s.obj.rotation.x += dt * 9; }
       s.obj.position.set(s.x, s.y, s.z);
       if (s.kind === 'bolt') { s.obj.scale.setScalar(1 + 0.25 * Math.sin(time * 45)); boltOn = s; }
-      if (s.kind === 'fireball' || s.kind === 'magic') { s.obj.scale.setScalar(1 + 0.3 * Math.sin(time * 38 + i)); s.obj.rotation.y += dt * 6; }
+      if (s.kind === 'fireball' || s.kind === 'magic' || s.kind === 'hex' || s.kind === 'orb' || s.kind === 'meteor') {
+        s.obj.scale.setScalar(1 + 0.3 * Math.sin(time * 38 + i)); s.obj.rotation.y += dt * 6;
+      }
+      if (K.grow) {  // breath: puffs swell and fade as they fly
+        const k = 1 - s.life / s.max;
+        s.obj.scale.setScalar(0.3 + 0.9 * k);
+        s.obj.material.opacity = 1 - k * k;
+        s.y += dt * 0.25;
+      }
+      if (s.mark) s.mark.material.opacity = 0.35 + 0.3 * Math.sin(time * 20);
       if (K.trail) burst(s.x, s.y, s.z, K.trail, 0.5, 0.35, K.color);
-      let done = s.life <= 0 || solid(Math.floor(s.x), Math.floor(s.z)) || (K.gravity && s.y <= 0.05);
+      const landed = K.gravity && s.y <= 0.05;
+      let done = s.life <= 0 || landed || (!K.gravity && solid(Math.floor(s.x), Math.floor(s.z)));
       if (!done && s.owner === 'hero') done = hitMonsters(s.x, s.z, K.hitR, K.dmg, K.splash || 0);
-      if (!done && s.owner === 'enemy' && s.y < 1.1) done = hitHero(s.x, s.z, K.hitR, s.kind);
+      if (!done && s.owner === 'enemy' && s.y < 1.1 && !K.aoe) done = hitHero(s.x, s.z, K.hitR, s.kind);
+      if (done && K.aoe && landed) {
+        if (s.owner === 'enemy') hitHero(s.x, s.z, K.aoe, s.kind);
+        if (onLand) onLand(s.kind, s.x, s.z);
+      }
       if (done) { live.splice(i, 1); pop(s); }
     }
     if (boltOn) { light.position.copy(boltOn.obj.position); light.intensity = 7; }
