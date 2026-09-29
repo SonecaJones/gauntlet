@@ -1,6 +1,6 @@
 const STR = {
   pt: {
-    subtitle: 'REFORJADO',
+    subtitle: 'CO-OP DUNGEON CRAWLER',
     tagline: 'Um tributo moderno ao clássico do NES',
     press_start: 'Pressione ENTER / START ou toque na tela',
     ctrl_kb: 'Teclado: WASD move • Mouse ou setas miram e atiram • Espaço esquiva • E especial • Q poção • Tab mapa • Esc pausa',
@@ -82,7 +82,7 @@ const STR = {
     you: 'VOCÊ', waiting_relic: 'Aguardando {hero} escolher uma relíquia',
   },
   en: {
-    subtitle: 'REFORGED',
+    subtitle: 'CO-OP DUNGEON CRAWLER',
     tagline: 'A modern tribute to the NES classic',
     press_start: 'Press ENTER / START or tap the screen',
     ctrl_kb: 'Keyboard: WASD move • Mouse or arrows aim & fire • Space dodge • E special • Q potion • Tab map • Esc pause',

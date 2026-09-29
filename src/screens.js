@@ -131,7 +131,7 @@ export class TitleScreen {
     g.addColorStop(0.5, '#ffb030');
     g.addColorStop(1, '#a04010');
     ctx.fillStyle = g;
-    ctx.fillText('GAUNTLET', vw / 2, y);
+    ctx.fillText('CRYPTFALL', vw / 2, y);
     ctx.restore();
     y += size * 1.08;
     const subSize = Math.min(22, vw / 26, vh / 26);

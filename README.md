@@ -1,6 +1,6 @@
-# Gauntlet Reforged
+# Cryptfall: Co-op Dungeon Crawler
 
-Um clone do **Gauntlet do NES** com recursos e jogabilidade modernos — roda direto no navegador, sem dependências, sem build e sem nenhum arquivo de imagem ou áudio (tudo é gerado por código).
+Um dungeon crawler cooperativo inspirado no **Gauntlet do NES**, com recursos e jogabilidade modernos — roda direto no navegador, sem dependências, sem build e sem nenhum arquivo de imagem ou áudio (tudo é gerado por código).
 
 ## Como jogar
 

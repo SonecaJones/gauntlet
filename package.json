@@ -1,7 +1,7 @@
 {
-  "name": "gauntlet-reforged",
+  "name": "cryptfall",
   "version": "1.0.0",
-  "description": "Clone moderno do Gauntlet do NES em HTML5 Canvas, sem depend\u00eancias.",
+  "description": "Cryptfall: dungeon crawler co-op inspirado no Gauntlet do NES, em HTML5 Canvas, sem depend\u00eancias.",
   "type": "module",
   "private": true,
   "scripts": {

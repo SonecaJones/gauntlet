@@ -5,8 +5,8 @@ export const NET_CONFIG = {
   // 'ws':     relay through this repo's server.js (npm start).
   transport: 'peerjs',
 
-  // Prefix for PeerJS ids, so room ABCD becomes "gauntlet-reforged-ABCD".
-  roomPrefix: 'gauntlet-reforged-',
+  // Prefix for PeerJS ids, so room ABCD becomes "cryptfall-ABCD".
+  roomPrefix: 'cryptfall-',
 
   // PeerJS options. Empty = free public PeerJS cloud + PeerJS's default
   // STUN/TURN servers. To use your own signaling server or TURN, e.g.:

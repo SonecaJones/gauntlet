@@ -1,7 +1,7 @@
 {
-  "name": "Gauntlet Reforged",
-  "short_name": "Gauntlet",
-  "description": "Clone moderno do Gauntlet do NES: masmorras procedurais, 4 heróis e co-op.",
+  "name": "Cryptfall: Co-op Dungeon Crawler",
+  "short_name": "Cryptfall",
+  "description": "Dungeon crawler co-op inspirado no Gauntlet do NES: masmorras procedurais, 4 heróis e co-op.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",

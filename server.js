@@ -176,4 +176,4 @@ setInterval(() => {
   }
 }, 25000);
 
-server.listen(port, () => console.log(`Gauntlet Reforged: http://localhost:${port}`));
+server.listen(port, () => console.log(`Cryptfall: http://localhost:${port}`));
