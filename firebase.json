@@ -1,7 +1,7 @@
 {
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "server.js", "tools/**", "package.json", "package-lock.json", "README.md"],
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "server.js", "tools/**", "package.json", "package-lock.json", "README.md", "divulgacao.md"],
     "headers": [
       { "source": "**/*.@(js|html|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
       { "source": "icons/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] }
