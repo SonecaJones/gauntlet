@@ -12,6 +12,7 @@ import { warrior, pixelize } from './sprite32.js';
 import { createShots } from './shots.js';
 import { createMonsters } from './monsters.js';
 import { createBoss, BOSS_KINDS, bossName } from './bosses.js';
+import { markOccluder, addSilhouette } from '../src/silhouette.js';
 
 // ------------------------------------------------------------------ level
 // ?chefe=dragon|lich|golem loads that boss's arena (levels 5, 10 and 15)
@@ -136,38 +137,17 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 }
 const sideMat = new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.95 });
 const topMat = new THREE.MeshStandardMaterial({ map: topTex, roughness: 1 });
-const wallGeo = new THREE.BoxGeometry(1, WALL_H, 1);
-const walls = new THREE.InstancedMesh(wallGeo, [sideMat, sideMat, topMat, topMat, sideMat, sideMat], wallTiles.length);
-walls.castShadow = walls.receiveShadow = true;
-// Walls standing between the camera and the hero turn see-through (they
-// used to drop to a stub, which made the room layout hard to read).
-const ghostMat = m => { const c = m.clone(); c.transparent = true; c.opacity = 0.28; c.depthWrite = false; return c; };
-const wallsSeeThrough = new THREE.InstancedMesh(wallGeo, [sideMat, sideMat, topMat, topMat, sideMat, sideMat].map(ghostMat), wallTiles.length);
-wallsSeeThrough.renderOrder = 2;
-scene.add(walls, wallsSeeThrough);
+const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, WALL_H, 1), [sideMat, sideMat, topMat, topMat, sideMat, sideMat], wallTiles.length);
 const m4 = new THREE.Matrix4();
-const wallFaded = new Uint8Array(wallTiles.length).fill(255);
-function cutaway(hx, hy) {
-  let dirty = false;
-  const faded = wallTiles.map(([x, y], i) => {
-    const dx = x + 0.5 - hx, dy = y + 0.5 - hy;
-    const f = dy > 0.2 && dy < 3.5 && Math.abs(dx) < 1.6 + dy * 0.5 ? 1 : 0;
-    if (f !== wallFaded[i]) dirty = true;
-    return f;
-  });
-  if (!dirty) return;
-  wallFaded.set(faded);
-  let a = 0, b = 0;
-  wallTiles.forEach(([x, y], i) => {
-    m4.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5);
-    if (faded[i]) wallsSeeThrough.setMatrixAt(b++, m4); else walls.setMatrixAt(a++, m4);
-  });
-  walls.count = a; wallsSeeThrough.count = b;
-  walls.instanceMatrix.needsUpdate = wallsSeeThrough.instanceMatrix.needsUpdate = true;
-}
+wallTiles.forEach(([x, y], i) => walls.setMatrixAt(i, m4.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5)));
+walls.castShadow = walls.receiveShadow = true;
+// walls stay solid; the hero shows as a silhouette behind them (src/silhouette.js)
+markOccluder([sideMat, topMat]);
+scene.add(walls);
 
 // doors
 const doorMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 });
+markOccluder(doorMat);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
   if (tileAt(x, y) !== T.DOOR) continue;
   const horiz = tileAt(x - 1, y) === T.DOOR || tileAt(x + 1, y) === T.DOOR || tileAt(x - 1, y) === T.WALL;
@@ -285,6 +265,7 @@ function onModel(name, gltf) {
     }
   });
   h.model.scale.setScalar(0.95);
+  addSilhouette(h.model, 0xffd35a);
   h.model.visible = false;
   scene.add(h.model);
   h.mixer = new THREE.AnimationMixer(h.model);
@@ -437,7 +418,7 @@ function updateCombat(dt) {
 }
 
 // ------------------------------------------------------------------ post-processing
-const composer = new EffectComposer(renderer);
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, stencilBuffer: true }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.5, 0.88);
 composer.addPass(bloom);
@@ -556,7 +537,6 @@ function tick(now) {
     mixer.update(dt);
   }
   hero.position.set(heroPos.x, 0, heroPos.y);
-  cutaway(heroPos.x, heroPos.y);
   hero.scale.x = facingLeft ? -1 : 1;
   heroLight.position.set(heroPos.x, 2.6, heroPos.y + 1.4);
 

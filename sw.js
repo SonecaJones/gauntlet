@@ -1,10 +1,10 @@
 // Offline support: network first (so updates arrive right away), cache as fallback.
-const CACHE = 'gauntlet-v6';
+const CACHE = 'gauntlet-v7';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/main.js', 'src/audio.js', 'src/constants.js', 'src/enemies.js', 'src/game.js', 'src/heroes.js',
   'src/i18n.js', 'src/input.js', 'src/level.js', 'src/net.js', 'src/netgame.js', 'src/render.js',
-  'src/screens.js', 'src/ui.js', 'src/util.js', 'src/config.js', 'src/transport.js', 'src/music.js', 'src/boss.js', 'src/view3d.js', 'vendor/peerjs.min.js',
+  'src/screens.js', 'src/ui.js', 'src/util.js', 'src/config.js', 'src/transport.js', 'src/music.js', 'src/boss.js', 'src/view3d.js', 'src/silhouette.js', 'vendor/peerjs.min.js',
   'vendor/three/three.module.js', 'vendor/three/three.core.js',
 ];
 

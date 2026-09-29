@@ -15,6 +15,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { TILE, T, PLAYER_COLORS } from './constants.js';
 import { drawItem, PROJ_GLOW } from './render.js';
 import { t } from './i18n.js';
+import { markOccluder, addSilhouette } from './silhouette.js';
 
 const MODEL_DIR = 'proto3d/models/';
 const HERO_KEYS = ['warrior', 'valkyrie', 'wizard', 'elf'];
@@ -69,21 +70,22 @@ export class View3D {
     this.el.id = 'view3d';
     this.el.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;pointer-events:none;visibility:hidden;';
     document.body.prepend(this.el);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.el, antialias: !touch, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.el, antialias: !touch, alpha: true, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, touch ? 1.25 : 1.5));
     this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.35;
+    this.renderer.toneMappingExposure = 1.6;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x050308);
-    this.scene.fog = new THREE.FogExp2(0x0a0614, 0.028);
+    this.scene.fog = new THREE.FogExp2(0x0a0614, 0.016);
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
     this.hemi = new THREE.HemisphereLight(0x8070c0, 0x2a1830, 1);
     this.scene.add(this.hemi);
     if (!this.low) {
-      this.composer = new EffectComposer(this.renderer);
+      // the stencil buffer is what lets heroes show through walls
+      this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(256, 256, { type: THREE.HalfFloatType, stencilBuffer: true }));
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.45, 0.86);
       this.composer.addPass(this.bloom);
@@ -189,12 +191,12 @@ export class View3D {
     // shaders from recompiling mid-game)
     this.torchLights = [];
     for (let i = 0; i < (this.low ? 3 : 5); i++) {
-      const l = new THREE.PointLight(0xff8a3a, 0, 7.5, 1.5);
+      const l = new THREE.PointLight(0xff9a4a, 0, 10, 1.3);
       S.add(l); this.torchLights.push(l);
     }
     this.playerLights = [];
     for (let i = 0; i < 4; i++) {
-      const l = new THREE.PointLight(0xffe2b0, 0, 8, 1.3);
+      const l = new THREE.PointLight(0xffe8c0, 0, 11, 1.1);
       if (i === 0 && !this.low) {
         l.castShadow = true; l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.003; l.shadow.camera.near = 0.1;
       }
@@ -259,7 +261,7 @@ export class View3D {
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         if (at(x, y) === T.WALL) continue;
         const px = x * PX, py = y * PX, v = 0.85 + hash(x, y) * 0.3;
-        g.fillStyle = rgb((x + y) & 1 ? th.floor : th.floor2, v * 1.25); g.fillRect(px, py, PX, PX);
+        g.fillStyle = rgb((x + y) & 1 ? th.floor : th.floor2, v * 1.5); g.fillRect(px, py, PX, PX);
         g.fillStyle = rgb(th.mortar, 0.9); g.fillRect(px, py, PX, Math.max(1, u)); g.fillRect(px, py, Math.max(1, u), PX);
         for (let k = 0; k < 6; k++) {
           g.fillStyle = rgb(hash(x, y, k) > 0.5 ? th.floor2 : th.mortar, v * (hash(x, y, k) > 0.5 ? 1.45 : 1.1));
@@ -308,11 +310,11 @@ export class View3D {
     this.walls = new THREE.InstancedMesh(box, [side, side, cap, cap, side, side], wallTiles.length);
     this.walls.castShadow = this.walls.receiveShadow = true;
     // walls between the camera and a hero turn see-through instead of vanishing
-    const ghost = m => { const c = m.clone(); c.transparent = true; c.opacity = 0.28; c.depthWrite = false; return c; };
-    this.wallsSeeThrough = new THREE.InstancedMesh(box, [ghost(side), ghost(side), ghost(cap), ghost(cap), ghost(side), ghost(side)], wallTiles.length);
-    this.wallsSeeThrough.renderOrder = 2;
-    this.wallFaded = new Uint8Array(wallTiles.length).fill(255);
-    G.add(this.walls, this.wallsSeeThrough);
+    // walls stay solid; a hero behind one shows as a silhouette (silhouette.js)
+    markOccluder([side, cap]);
+    const m4 = new THREE.Matrix4();
+    wallTiles.forEach(([x, y], i) => this.walls.setMatrixAt(i, m4.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5)));
+    G.add(this.walls);
 
     // doors
     this.doors = [];
@@ -323,6 +325,7 @@ export class View3D {
       g.fillStyle = '#e2b340'; g.fillRect(13, 13, 6, 6); g.fillStyle = '#111'; g.fillRect(15, 15, 2, 3);
     }));
     const doorMat = new THREE.MeshStandardMaterial({ map: wood, roughness: 0.8 });
+    markOccluder(doorMat);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (at(x, y) !== T.DOOR) continue;
       const horiz = at(x - 1, y) === T.DOOR || at(x + 1, y) === T.DOOR || at(x - 1, y) === T.WALL;
@@ -345,7 +348,7 @@ export class View3D {
       return { pos, flame, ph: Math.random() * 10 };
     });
     const dark = game.darkness ?? 0.85;
-    this.hemi.intensity = 1.35 - (dark - 0.82) * 5;
+    this.hemi.intensity = 2.3 - (dark - 0.82) * 5;
     this.lastTime = null;
   }
 
@@ -356,28 +359,6 @@ export class View3D {
       g.fillStyle = `rgb(${90 - i * 18},${76 - i * 15},${110 - i * 20})`;
       g.fillRect(px + (5 + i * 2) * u, py + (5 + i * 6) * u, PX - (10 + i * 4) * u, 4 * u);
     }
-  }
-
-  // Walls just "south" of a hero (between it and the camera) go see-through.
-  updateWalls(game) {
-    const heroes = game.players.filter(p => p.alive).map(p => [W3(p.x), W3(p.y)]);
-    let dirty = false;
-    const m = new THREE.Matrix4();
-    let a = 0, b = 0;
-    const faded = this.wallTiles.map(([x, y]) => heroes.some(([hx, hy]) => {
-      const dx = x + 0.5 - hx, dy = y + 0.5 - hy;
-      return dy > 0.2 && dy < 2.8 && Math.abs(dx) < 1.3 + dy * 0.45;
-    }) ? 1 : 0);
-    for (let i = 0; i < faded.length; i++) if (faded[i] !== this.wallFaded[i]) { dirty = true; break; }
-    if (!dirty) return;
-    this.wallFaded.set(faded);
-    this.wallTiles.forEach(([x, y], i) => {
-      m.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5);
-      if (faded[i]) this.wallsSeeThrough.setMatrixAt(b++, m); else this.walls.setMatrixAt(a++, m);
-    });
-    this.walls.count = a; this.wallsSeeThrough.count = b;
-    this.walls.instanceMatrix.needsUpdate = true;
-    this.wallsSeeThrough.instanceMatrix.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------- per-frame sync
@@ -424,6 +405,7 @@ export class View3D {
       }
     }
     v.root.scale.setScalar(0.95);
+    addSilhouette(v.root, PLAYER_COLORS[p.slot % 4]);
     this.scene.add(v.root);
     // coloured ring under each player; a tombstone for when it falls
     v.ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: PLAYER_COLORS[p.slot % 4], transparent: true, opacity: 0.55, depthWrite: false }));
@@ -487,7 +469,7 @@ export class View3D {
     const light = this.playerLights[li];
     if (light) {
       light.position.set(x, 2.4, z + 1.2);
-      light.intensity = p.alive ? 5 : 1.5;
+      light.intensity = p.alive ? 9 : 2.5;
       light.color.set(p.alive ? 0xffe2b0 : 0x8888aa);
     }
     if (!p.alive) { v.tomb.position.set(x, 0, z); return; }
@@ -851,7 +833,6 @@ export class View3D {
     }
     this.exitLight.position.set(W3(game.exitPos.x), 0.6, W3(game.exitPos.y));
     this.exitLight.intensity = game.exitOpen ? 2.4 + Math.sin(time * 3) : 0;
-    this.updateWalls(game);
 
     // torch light pool: the torches nearest the view centre
     const near = this.torches.map(tc => [tc, (tc.pos.x - this.cx) ** 2 + (tc.pos.z - this.cz) ** 2]).sort((a, b) => a[1] - b[1]);
@@ -859,7 +840,7 @@ export class View3D {
       const tc = near[i] && near[i][0];
       if (!tc) { l.intensity = 0; return; }
       l.position.set(tc.pos.x, tc.pos.y + 0.1, tc.pos.z + 0.25);
-      l.intensity = 14 + Math.sin(time * 13 + tc.ph) * 1.5 + Math.sin(time * 7.3 + tc.ph * 2) * 1;
+      l.intensity = 20 + Math.sin(time * 13 + tc.ph) * 2 + Math.sin(time * 7.3 + tc.ph * 2) * 1.2;
     });
     for (const tc of this.torches) tc.flame.scale.setScalar(0.38 + Math.sin(time * 16 + tc.ph) * 0.05);
 
@@ -906,6 +887,64 @@ export class View3D {
 
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
+  }
+
+  // ---------------------------------------------------------------- menus
+  // 3D heroes drawn into the 2D menu canvas (title line-up, hero cards).
+  // list: [{ id, key, x, y (feet, screen px), size (px tall), facing (2D angle), active }]
+  // Active heroes swing their weapon now and then. Returns false until ready.
+  drawMenuHeroes(ctx, list, time) {
+    if (!this.ready || this.failed) return false;
+    const { vw, vh } = this.app;
+    if (this.size[0] !== vw || this.size[1] !== vh) {
+      this.size = [vw, vh];
+      this.renderer.setSize(vw, vh, false);
+      this.composer?.setSize(vw, vh);
+      this.camera.aspect = vw / vh;
+      this.camera.updateProjectionMatrix();
+    }
+    let M = this.menu;
+    if (!M) {
+      M = this.menu = { scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(0, 1, 0, -1, -4000, 4000), heroes: new Map(), last: time };
+      M.cam.position.z = 2000;
+      const key = new THREE.DirectionalLight(0xffe0b8, 3.2);
+      key.position.set(-0.6, 1, 1.2);
+      const rim = new THREE.DirectionalLight(0x8fa8ff, 2.2);
+      rim.position.set(0.8, 0.6, -1);
+      M.scene.add(new THREE.HemisphereLight(0x9a88d8, 0x2a1830, 1.6), key, rim);
+    }
+    M.cam.right = vw; M.cam.bottom = -vh; M.cam.updateProjectionMatrix();
+    const dt = Math.max(0, Math.min(0.1, time - M.last));
+    M.last = time;
+    for (const v of M.heroes.values()) v.root.visible = false;
+    for (const it of list) {
+      let v = M.heroes.get(it.id);
+      if (!v || v.key !== it.key) {
+        if (v) M.scene.remove(v.root);
+        const inst = this.instance(it.key, false);
+        v = { ...inst, key: it.key, acts: {}, cur: null, next: 1 + Math.random() * 2 };
+        for (const clip of inst.clips) v.acts[clip.name] = v.mixer.clipAction(clip);
+        v.acts.Attack.setLoop(THREE.LoopOnce, 1);
+        v.acts.Attack.clampWhenFinished = true;
+        this.play(v, 'Idle');
+        M.scene.add(v.root);
+        M.heroes.set(it.id, v);
+      }
+      v.root.visible = true;
+      v.root.position.set(it.x, -it.y, 0);
+      v.root.scale.setScalar(it.size);
+      v.root.rotation.set(0.32, faceY(it.facing), 0);
+      if (it.active) {
+        v.next -= dt;
+        if (v.next <= 0) { v.next = 2.2 + Math.random(); this.play(v, 'Attack', { once: true, fade: 0.1 }); v.atkT = v.acts.Attack.getClip().duration; }
+      }
+      if (v.atkT > 0 && (v.atkT -= dt) <= 0) this.play(v, 'Idle', { fade: 0.25 });
+      v.mixer.update(dt);
+    }
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.render(M.scene, M.cam);
+    ctx.drawImage(this.el, 0, 0, vw, vh);
+    return true;
   }
 
   // ---------------------------------------------------------------- screen <-> world

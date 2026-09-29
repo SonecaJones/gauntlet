@@ -71,11 +71,12 @@ simulação é a mesma do 2D (`src/game.js`), então velocidade, dano, projétei
 modo online não mudam; o 3D (`src/view3d.js`) só lê o estado e desenha. O HUD,
 os números de dano e os menus continuam na camada 2D por cima.
 
-- Muros entre a câmera e um herói ficam translúcidos, para ele nunca sumir atrás deles.
+- Os muros ficam sempre sólidos; um herói atrás de um muro aparece como silhueta na cor do jogador (`src/silhouette.js`).
+- A tela inicial e a escolha de heróis também usam os modelos 3D.
 - Todos os heróis atiram como no clássico: machado (Guerreiro), espada
   (Valquíria), fogo (Mago) e flecha (Elfo), com a animação de arremesso.
 - No celular o 3D usa menos luzes, sem sombras nem bloom.
-- Na pausa, **Gráficos 3D** liga/desliga; desligado (ou sem WebGL) o jogo volta ao 2D.
+- O 3D vem ligado. O botão **3D | 2d** na tela inicial ou **Gráficos 3D** na pausa troca, e a escolha fica salva; sem WebGL o jogo usa o 2D.
 
 ## O que vem do clássico
 

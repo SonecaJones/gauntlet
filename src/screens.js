@@ -38,6 +38,21 @@ const fakeHero = (key, x, y, time, facing = Math.PI / 2, moving = true) => ({
   hero: HEROES[key], x, y, facing, moving, walk: time, hurt: 0, buffs: {}, spinT: 0,
 });
 
+// Menu heroes: the 3D models when 3D is on (and loaded), else the 2D sprites.
+// list: [{ id, key, x, y, size, facing, active, hs? }] with (x, y) the sprite's anchor.
+function drawHeroes(ctx, app, list, hs, time) {
+  const v3 = app.view3d;
+  if (v3 && v3.usable(app.settings) && v3.drawMenuHeroes(ctx, list.map(h => ({ ...h, y: h.y + 11 * (h.hs || hs) })), time)) return;
+  list.forEach((h, i) => {
+    const s = h.hs || hs;
+    ctx.save();
+    ctx.translate(h.x, h.y);
+    ctx.scale(s, s);
+    drawHero(ctx, fakeHero(h.key, 0, 0, time + i * 0.3, h.facing, h.active), time);
+    ctx.restore();
+  });
+}
+
 // Room code badge shown in online lobbies.
 function roomBadge(ctx, app) {
   const net = app.net;
@@ -132,14 +147,11 @@ export class TitleScreen {
       const cx = side ? (vw - menuW - Math.max(24, sf.r + 12) + sf.l) / 2 : vw / 2;
       const baseY = side ? y + 60 * hs * 0.5 + 30 : y + 34 * hs;
       const spread = side ? 30 : 60;
-      HERO_ORDER.forEach((k, i) => {
-        const x = cx + (i - 1.5) * spread * hs;
-        ctx.save();
-        ctx.translate(side ? x : x, side ? baseY + (i % 2) * 18 * hs : baseY);
-        ctx.scale(hs, hs);
-        drawHero(ctx, fakeHero(k, 0, 0, this.t + i * 0.3), this.t);
-        ctx.restore();
-      });
+      const list = HERO_ORDER.map((k, i) => ({
+        id: 'title' + i, key: k, x: cx + (i - 1.5) * spread * hs, y: side ? baseY + (i % 2) * 18 * hs : baseY,
+        size: 40 * hs, facing: Math.PI / 2 - (i - 1.5) * 0.3, active: true,
+      }));
+      drawHeroes(ctx, app, list, hs, this.t);
       if (!side) y = baseY + 26 * hs;
     }
 
@@ -176,12 +188,21 @@ export class TitleScreen {
       setLang(nl); app.settings.lang = nl; app.saveSettings();
       app.audio.play('select');
     });
+    let bx = lx + 94;
     if (app.isTouch && app.canFullscreen) {
-      const fx = lx + 94;
-      panel(ctx, fx, ly, 40, 26);
-      txt(ctx, app.isFullscreen ? '⤡' : '⤢', fx + 20, ly + 5, 14, '#fff', 'center', 'sans-serif');
-      hit(this.buttons, fx, ly, 40, 26, () => app.toggleFullscreen());
+      panel(ctx, bx, ly, 40, 26);
+      txt(ctx, app.isFullscreen ? '⤡' : '⤢', bx + 20, ly + 5, 14, '#fff', 'center', 'sans-serif');
+      hit(this.buttons, bx, ly, 40, 26, () => app.toggleFullscreen());
+      bx += 50;
     }
+    // 3D / 2D graphics (saved; also in the pause menu)
+    const on3d = app.settings.view3d !== false;
+    panel(ctx, bx, ly, 84, 26);
+    txt(ctx, on3d ? '3D | 2d' : '3d | 2D', bx + 42, ly + 8, 8, '#fff', 'center');
+    hit(this.buttons, bx, ly, 84, 26, () => {
+      app.settings.view3d = !on3d; app.saveSettings();
+      app.audio.play('select');
+    });
   }
 }
 
@@ -367,6 +388,7 @@ export class SelectScreen {
     const cw = Math.min(250, (vw - 32 - gap * (cols - 1)) / cols);
     const ch = Math.min(wide ? 380 : 320, (vh - top - 90 - gap * (rows - 1)) / rows);
     const ox = (vw - cw * cols - gap * (cols - 1)) / 2, oy = top + Math.max(0, (vh - top - 90 - ch * rows - gap * (rows - 1)) / 2);
+    const heroes = [];
     HERO_ORDER.forEach((k, i) => {
       const H = HEROES[k];
       const x = ox + (i % cols) * (cw + gap), y = oy + Math.floor(i / cols) * (ch + gap);
@@ -377,11 +399,7 @@ export class SelectScreen {
       if (lockedBy) { ctx.lineWidth = 3; ctx.strokeStyle = border; ctx.stroke(); }
       hit(this.buttons, x, y, cw, ch, src => this.clickCard(i, src));
       const hs = Math.min(3.4, cw / 60, ch / 110);
-      ctx.save();
-      ctx.translate(x + cw / 2, y + 30 + 22 * hs);
-      ctx.scale(hs, hs);
-      drawHero(ctx, fakeHero(k, 0, 0, this.t, here.length ? Math.PI / 2 : Math.PI * 0.35, here.length > 0), this.t);
-      ctx.restore();
+      heroes.push({ id: 'sel' + i, key: k, x: x + cw / 2, y: y + 34 + 24 * hs, size: 34 * hs, hs, facing: here.length ? Math.PI / 2 : Math.PI * 0.35, active: here.length > 0 });
       let ty = y + 40 + 36 * hs;
       const fs = cw < 170 ? 7 : 9;
       txt(ctx, heroName(k).toUpperCase(), x + cw / 2, ty, fs + 3, H.light, 'center');
@@ -421,6 +439,7 @@ export class SelectScreen {
         txt(ctx, t('tap_ready'), x + cw / 2, y + ch - 18, cw < 170 ? 6 : 7, '#ffe9a0', 'center');
       }
     });
+    drawHeroes(ctx, this.app, heroes, heroes[0]?.hs || 1, this.t);
     const sb = this.app.safe ? this.app.safe.b : 0;
     let fy = vh - 70 - sb;
     const devs = this.slots.map((s, i) => `P${i + 1}: ${deviceName(s.ctrlId)}`).join('   ');
