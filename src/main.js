@@ -3,8 +3,19 @@ import { AudioSys } from './audio.js';
 import { TitleScreen, PlayScreen, JoinScreen } from './screens.js';
 import { setLang } from './i18n.js';
 
-const SETTINGS_KEY = 'gauntlet.settings';
-const SCORES_KEY = 'gauntlet.scores';
+const SETTINGS_KEY = 'cryptfall.settings';
+const SCORES_KEY = 'cryptfall.scores';
+
+// Copy saves from the pre-rename keys once, so players keep their settings and scores.
+try {
+  for (const k of ['settings', 'scores']) {
+    const old = localStorage.getItem('gauntlet.' + k);
+    if (old !== null) {
+      if (localStorage.getItem('cryptfall.' + k) === null) localStorage.setItem('cryptfall.' + k, old);
+      localStorage.removeItem('gauntlet.' + k);
+    }
+  }
+} catch { /* storage blocked */ }
 
 function load(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
