@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -59,6 +60,39 @@ function canvas(w, h, paint) {
   paint(c.getContext('2d'), w, h);
   return c;
 }
+// Quality ladder, best first. 'auto' moves along it to hold the frame rate;
+// the pause menu can also pin high / medium / low.
+const LEVELS = [
+  { pr: 1.5, bloom: true, shadow: true },
+  { pr: 1.25, bloom: true, shadow: true },
+  { pr: 1, bloom: true, shadow: true },
+  { pr: 1, bloom: false, shadow: true },
+  { pr: 1, bloom: false, shadow: false },
+  { pr: 0.8, bloom: false, shadow: false },
+  { pr: 0.65, bloom: false, shadow: false },
+  { pr: 0.5, bloom: false, shadow: false },
+];
+const PRESET = { high: 0, medium: 3, low: 6 };
+
+// One cheap material per model: Lambert shading with the colours (and glow)
+// of the original parts baked into vertex attributes, so each model is a
+// single draw call instead of one per part.
+function vertexLambert(transparent, opacity, side) {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent, opacity, side, depthWrite: !transparent });
+  m.userData.vtx = true;
+  setVertexGlow(m);
+  return m;
+}
+function setVertexGlow(m) {
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 glow;\nvarying vec3 vGlow;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGlow;')
+      .replace('vec3 totalEmissiveRadiance = emissive;', 'vec3 totalEmissiveRadiance = emissive + vGlow;');
+  };
+  m.customProgramCacheKey = () => 'vertexGlow';
+}
+
 const rgb = (c, k = 1) => `rgb(${c.map(v => Math.max(0, Math.min(255, Math.round(v * k)))).join(',')})`;
 
 export class View3D {
@@ -71,8 +105,8 @@ export class View3D {
     this.el.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;pointer-events:none;visibility:hidden;';
     document.body.prepend(this.el);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.el, antialias: !touch, alpha: true, stencil: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, touch ? 1.25 : 1.5));
-    this.renderer.shadowMap.enabled = !this.low;
+    this.renderer.setPixelRatio(1);
+    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.6;
@@ -83,15 +117,8 @@ export class View3D {
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
     this.hemi = new THREE.HemisphereLight(0x8070c0, 0x2a1830, 1);
     this.scene.add(this.hemi);
-    if (!this.low) {
-      // the stencil buffer is what lets heroes show through walls
-      this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(256, 256, { type: THREE.HalfFloatType, stencilBuffer: true }));
-      this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.45, 0.86);
-      this.composer.addPass(this.bloom);
-      this.composer.addPass(new OutputPass());
-    }
     this.size = [0, 0];
+    this.composer = null;
     this.shown = false;
     this.ready = false;
     this.lastTime = null;
@@ -110,6 +137,11 @@ export class View3D {
     this.dying = [];
     this.frame = 0;
     this.buildShared();
+    // phones start without bloom and shadows; 'auto' climbs if there is room
+    this.qLevel = -1;
+    this.autoLevel = touch ? 4 : 0;
+    this.fails = new Uint8Array(LEVELS.length);
+    this.perf = { t: performance.now(), n: 0, sum: 0, good: 0, cool: 1, fps: 0 };
     const loader = new GLTFLoader();
     const names = [...HERO_KEYS, ...Object.keys(ENEMY_TYPES), 'gen_bones', 'gen_hut', ...Object.keys(BOSSES)];
     this.loading = Promise.all(names.map(n => loader.loadAsync(MODEL_DIR + n + '.glb').then(g => { this.prepModel(g); this.templates[n] = g; })))
@@ -124,15 +156,43 @@ export class View3D {
     return tx;
   }
   prepModel(gltf) {
-    gltf.scene.traverse(o => {
-      if (!o.isMesh) return;
-      o.castShadow = !this.low; o.receiveShadow = !this.low;
-      for (const m of [].concat(o.material)) {
-        m.flatShading = true;
-        if (m.metalness > 0.5) { m.metalness = 0.35; m.roughness = Math.max(m.roughness, 0.45); }
-        if (m.transparent) { m.depthWrite = false; o.castShadow = false; }
+    // merge each model's parts (one glTF primitive per material) into one
+    // mesh per kind of surface (opaque / see-through / double-sided)
+    const groups = new Map();
+    gltf.scene.traverse(o => { if (o.isMesh) { if (!groups.has(o.parent)) groups.set(o.parent, []); groups.get(o.parent).push(o); } });
+    for (const [parent, meshes] of groups) {
+      const buckets = new Map();
+      for (const o of meshes) {
+        const m = [].concat(o.material)[0];
+        const key = `${m.transparent ? 1 : 0}|${m.side}|${m.opacity}`;
+        const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'skinIndex', 'skinWeight'].includes(n)) g.deleteAttribute(n);
+        const n = g.attributes.position.count, col = new Float32Array(n * 3), glow = new Float32Array(n * 3);
+        const e = m.emissive.clone().multiplyScalar(m.emissiveIntensity);
+        // Lambert has no metal or specular: darken metals and tone the rest
+        // down a little so the models keep their look under the same lights
+        const c = m.color.clone().multiplyScalar(0.85 * (1 - 0.45 * Math.min(1, m.metalness || 0)));
+        for (let i = 0; i < n; i++) {
+          col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+          glow[i * 3] = e.r; glow[i * 3 + 1] = e.g; glow[i * 3 + 2] = e.b;
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        g.setAttribute('glow', new THREE.BufferAttribute(glow, 3));
+        if (!buckets.has(key)) buckets.set(key, { m, src: o, geos: [] });
+        buckets.get(key).geos.push(g);
       }
-    });
+      for (const b of buckets.values()) {
+        const geo = mergeGeometries(b.geos, false);
+        const mat = vertexLambert(b.m.transparent, b.m.opacity, b.m.side);
+        const src = b.src;
+        const mesh = src.isSkinnedMesh ? new THREE.SkinnedMesh(geo, mat) : new THREE.Mesh(geo, mat);
+        if (src.isSkinnedMesh) mesh.bind(src.skeleton, src.bindMatrix);
+        mesh.position.copy(src.position); mesh.quaternion.copy(src.quaternion); mesh.scale.copy(src.scale);
+        mesh.castShadow = !b.m.transparent; mesh.receiveShadow = true;
+        parent.add(mesh);
+      }
+      for (const o of meshes) parent.remove(o);
+    }
   }
   // clone a model with its own materials (hit flashes and fades touch only it)
   instance(name, fade) {
@@ -143,6 +203,7 @@ export class View3D {
       if (!o.isMesh) return;
       o.material = [].concat(o.material).map(m => {
         const c = m.clone();
+        if (m.userData.vtx) setVertexGlow(c);
         c.userData.emissive = c.emissive.clone(); c.userData.ei = c.emissiveIntensity; c.userData.opacity = c.opacity;
         if (fade) c.transparent = true;
         mats.push(c);
@@ -155,7 +216,7 @@ export class View3D {
   tint(v, flash, glow, opacity) {
     for (const m of v.mats) {
       if (flash) { m.emissive.setRGB(1, 1, 1); m.emissiveIntensity = 0.9; }
-      else if (glow && m.userData.ei < 0.5) { m.emissive.set(glow[0]); m.emissiveIntensity = glow[1]; }
+      else if (glow && (m.userData.vtx || m.userData.ei < 0.5)) { m.emissive.set(glow[0]); m.emissiveIntensity = glow[1]; }
       else { m.emissive.copy(m.userData.emissive); m.emissiveIntensity = m.userData.ei; }
       if (opacity != null) m.opacity = m.userData.opacity * opacity;
     }
@@ -190,20 +251,22 @@ export class View3D {
     // lights that exist for the whole session (a fixed light count keeps
     // shaders from recompiling mid-game)
     this.torchLights = [];
-    for (let i = 0; i < (this.low ? 3 : 5); i++) {
+    for (let i = 0; i < (this.low ? 3 : 4); i++) {
       const l = new THREE.PointLight(0xff9a4a, 0, 10, 1.3);
       S.add(l); this.torchLights.push(l);
     }
+    // one light per player (each light costs every pixel, so no spares)
     this.playerLights = [];
-    for (let i = 0; i < 4; i++) {
-      const l = new THREE.PointLight(0xffe8c0, 0, 11, 1.1);
-      if (i === 0 && !this.low) {
-        l.castShadow = true; l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.003; l.shadow.camera.near = 0.1;
-      }
-      S.add(l); this.playerLights.push(l);
-    }
+    // shadows come from one spotlight over the first hero: a single shadow
+    // pass (a point light's would be six)
+    this.heroSpot = new THREE.SpotLight(0xffe8c0, 0, 14, 0.95, 0.7, 1.2);
+    this.heroSpot.castShadow = true;
+    this.heroSpot.shadow.mapSize.set(1024, 1024);
+    this.heroSpot.shadow.bias = -0.0015;
+    this.heroSpot.shadow.camera.near = 1;
+    S.add(this.heroSpot, this.heroSpot.target);
     this.shotLights = [];
-    for (let i = 0; i < (this.low ? 1 : 2); i++) { const l = new THREE.PointLight(0xff9a3a, 0, 4.5, 1.6); S.add(l); this.shotLights.push(l); }
+    for (let i = 0; i < 1; i++) { const l = new THREE.PointLight(0xff9a3a, 0, 4.5, 1.6); S.add(l); this.shotLights.push(l); }
     this.exitLight = new THREE.PointLight(0xffd35a, 0, 5, 1.5);
     this.bossLight = new THREE.PointLight(0xff7a30, 0, 6, 1.6);
     S.add(this.exitLight, this.bossLight);
@@ -271,7 +334,7 @@ export class View3D {
       }
     });
     this.floorTex = this.tex(this.floorCanvas);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.92 }));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshLambertMaterial({ map: this.floorTex }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(W / 2, 0, H / 2);
     floor.receiveShadow = true;
@@ -306,7 +369,7 @@ export class View3D {
     }
     this.wallTiles = wallTiles;
     const box = new THREE.BoxGeometry(1, WALL_H, 1);
-    const side = new THREE.MeshStandardMaterial({ map: brick, roughness: 0.95 }), cap = new THREE.MeshStandardMaterial({ map: topT, roughness: 1 });
+    const side = new THREE.MeshLambertMaterial({ map: brick }), cap = new THREE.MeshLambertMaterial({ map: topT });
     this.walls = new THREE.InstancedMesh(box, [side, side, cap, cap, side, side], wallTiles.length);
     this.walls.castShadow = this.walls.receiveShadow = true;
     // walls between the camera and a hero turn see-through instead of vanishing
@@ -324,7 +387,7 @@ export class View3D {
       g.fillStyle = '#2c2c36'; g.fillRect(0, 6, 32, 3); g.fillRect(0, 23, 32, 3);
       g.fillStyle = '#e2b340'; g.fillRect(13, 13, 6, 6); g.fillStyle = '#111'; g.fillRect(15, 15, 2, 3);
     }));
-    const doorMat = new THREE.MeshStandardMaterial({ map: wood, roughness: 0.8 });
+    const doorMat = new THREE.MeshLambertMaterial({ map: wood });
     markOccluder(doorMat);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (at(x, y) !== T.DOOR) continue;
@@ -339,7 +402,7 @@ export class View3D {
     // torches on the walls
     this.torches = game.level.torches.map(tc => {
       const pos = new THREE.Vector3(tc.x + 0.5, 0.9, tc.y + 1.06);
-      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.12), new THREE.MeshStandardMaterial({ color: 0x3a2618 }));
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.12), new THREE.MeshLambertMaterial({ color: 0x3a2618 }));
       bracket.position.set(pos.x, pos.y - 0.12, pos.z - 0.02);
       const flame = new THREE.Sprite(this.flameMat);
       flame.position.copy(pos);
@@ -348,7 +411,7 @@ export class View3D {
       return { pos, flame, ph: Math.random() * 10 };
     });
     const dark = game.darkness ?? 0.85;
-    this.hemi.intensity = 2.3 - (dark - 0.82) * 5;
+    this.hemi.intensity = 1.6 - (dark - 0.82) * 4;
     this.lastTime = null;
   }
 
@@ -419,18 +482,18 @@ export class View3D {
   }
   makeTomb(color) {
     const g = new THREE.Group();
-    const stone = new THREE.MeshStandardMaterial({ color: 0x6a6a78, roughness: 0.9, flatShading: true });
+    const stone = new THREE.MeshLambertMaterial({ color: 0x6a6a78, flatShading: true });
     const slab = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.14), stone);
     slab.position.y = 0.25;
     const round = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.14, 12, 1, false, 0, Math.PI), stone);
     round.rotation.set(Math.PI / 2, 0, Math.PI / 2); round.position.y = 0.5;
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.3), new THREE.MeshStandardMaterial({ color: 0x4a4a56 }));
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.3), new THREE.MeshLambertMaterial({ color: 0x4a4a56 }));
     base.position.y = 0.04;
-    const cm = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3 });
+    const cm = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.3 });
     const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.28, 0.02), cm), c2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.02), cm);
     c1.position.set(0, 0.36, 0.08); c2.position.set(0, 0.42, 0.08);
     g.add(slab, round, base, c1, c2);
-    g.traverse(o => { if (o.isMesh) o.castShadow = !this.low; });
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     return g;
   }
   layer(v, layer, name, fade = 0.2) {
@@ -467,9 +530,14 @@ export class View3D {
     v.ring.visible = p.alive && this.playersN > 1;
     v.shield.visible = p.alive && !!(p.buffs && p.buffs.invuln);
     const light = this.playerLights[li];
+    if (li === 0) {
+      this.heroSpot.position.set(x - 0.6, 6, z + 2.2);
+      this.heroSpot.target.position.set(x, 0, z);
+      this.heroSpot.intensity = p.alive && this.shadows ? 9 : 0;
+    }
     if (light) {
       light.position.set(x, 2.4, z + 1.2);
-      light.intensity = p.alive ? 9 : 2.5;
+      light.intensity = p.alive ? (li === 0 && this.shadows ? 5 : 8) : 2.5;
       light.color.set(p.alive ? 0xffe2b0 : 0x8888aa);
     }
     if (!p.alive) { v.tomb.position.set(x, 0, z); return; }
@@ -607,6 +675,7 @@ export class View3D {
     root.traverse(o => {
       if (!o.isMesh) return;
       o.material = o.material.clone();
+      if (o.material.userData.vtx) setVertexGlow(o.material);
       o.material.userData.emissive = o.material.emissive.clone(); o.material.userData.ei = o.material.emissiveIntensity; o.material.userData.opacity = 1;
       mats.push(o.material);
     });
@@ -625,10 +694,10 @@ export class View3D {
     const map = this.itemTexture(it);
     const shiny = it.kind === 'potion' || it.kind === 'amulet' || it.kind === 'key' || it.kind === 'chest';
     const geo = new THREE.PlaneGeometry(0.62, 0.62).translate(0, 0.31, 0);
-    const mat = new THREE.MeshStandardMaterial({ map, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1, emissive: shiny ? 0xffffff : 0, emissiveMap: shiny ? map : null, emissiveIntensity: 0.35 });
+    const mat = new THREE.MeshLambertMaterial({ map, alphaTest: 0.5, side: THREE.DoubleSide, emissive: shiny ? 0xffffff : 0, emissiveMap: shiny ? map : null, emissiveIntensity: 0.35 });
     const m = new THREE.Mesh(geo, mat);
     m.rotation.x = -0.45;
-    m.castShadow = !this.low;
+    m.castShadow = true;
     m.customDepthMaterial = new THREE.MeshDepthMaterial({ map, alphaTest: 0.5, depthPacking: THREE.RGBADepthPacking });
     m.customDistanceMaterial = new THREE.MeshDistanceMaterial({ map, alphaTest: 0.5 });
     this.scene.add(m);
@@ -641,21 +710,21 @@ export class View3D {
     const v = this.pooled('shot_' + k, () => {
       let root;
       const basic = c => new THREE.MeshBasicMaterial({ color: c });
-      const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o });
+      const std = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
       if (k === 'axe') {
         root = new THREE.Group();
         const spin = new THREE.Group();
         const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 5), std(0x6a4020));
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.16), std(0xc8d0e0, { metalness: 0.4, roughness: 0.35 }));
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.16), std(0xc8d0e0));
         blade.position.set(0, 0.13, 0.08);
         spin.add(handle, blade);
         root.add(spin); root.userData.spin = spin;
       } else if (k === 'sword') {
         root = new THREE.Group();
         const spin = new THREE.Group();
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.06), std(0xdfe6f5, { metalness: 0.5, roughness: 0.3 }));
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.06), std(0xdfe6f5));
         blade.position.y = 0.12;
-        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.18), std(0xe2b340, { metalness: 0.6 }));
+        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.18), std(0xe2b340));
         guard.position.y = -0.08;
         spin.add(blade, guard);
         root.add(spin); root.userData.spin = spin;
@@ -663,7 +732,7 @@ export class View3D {
         root = new THREE.Group();
         const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.55, 5), k === 'storm' ? basic(0x9fffc0) : std(0x8a5a2a));
         shaft.rotation.x = Math.PI / 2;
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 4), k === 'storm' ? basic(0xeaffef) : std(0xc8d0e0, { metalness: 0.3 }));
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 4), k === 'storm' ? basic(0xeaffef) : std(0xc8d0e0));
         tip.rotation.x = Math.PI / 2; tip.position.z = 0.31;
         const fl = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.06, 0.1), k === 'storm' ? basic(0x5aff9a) : std(0xd8261c));
         fl.position.z = -0.24;
@@ -679,7 +748,7 @@ export class View3D {
         root.add(core, halo);
         root.userData.core = core;
       }
-      root.traverse(o => { if (o.isMesh && o.material.type !== 'MeshBasicMaterial') o.castShadow = !this.low; });
+      root.traverse(o => { if (o.isMesh && o.material.type !== 'MeshBasicMaterial') o.castShadow = true; });
       return { root };
     });
     // who threw it? play that hero's or monster's attack
@@ -717,8 +786,8 @@ export class View3D {
   makeLob(l) {
     const fire = !!l.fire;
     const obj = new THREE.Mesh(new THREE.IcosahedronGeometry(fire ? 0.17 : 0.12, 0),
-      fire ? new THREE.MeshBasicMaterial({ color: 0xffa040 }) : new THREE.MeshStandardMaterial({ color: 0x8a8278, roughness: 0.95, flatShading: true }));
-    obj.castShadow = !this.low;
+      fire ? new THREE.MeshBasicMaterial({ color: 0xffa040 }) : new THREE.MeshLambertMaterial({ color: 0x8a8278, flatShading: true }));
+    obj.castShadow = true;
     const mark = new THREE.Mesh(this.markGeo, new THREE.MeshBasicMaterial({ color: 0xff3a20, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     mark.scale.setScalar(W3(fire ? 46 : 36));
     this.scene.add(obj, mark);
@@ -795,8 +864,57 @@ export class View3D {
   usable(settings) { return this.ready && !this.failed && settings.view3d !== false; }
   hide() { if (this.shown) { this.el.style.visibility = 'hidden'; this.shown = false; } }
 
+  // ---------------------------------------------------------------- quality
+  setLevel(i) {
+    i = Math.max(0, Math.min(LEVELS.length - 1, i));
+    if (i === this.qLevel) return;
+    const L = LEVELS[i], prev = LEVELS[this.qLevel];
+    this.qLevel = i;
+    const pr = Math.min(devicePixelRatio || 1, L.pr);
+    this.renderer.setPixelRatio(pr);
+    if (L.bloom && !this.composer) {
+      // the stencil buffer is what lets heroes show through walls
+      this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(256, 256, { type: THREE.HalfFloatType, stencilBuffer: true }));
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.4, 0.92));
+      this.composer.addPass(new OutputPass());
+    }
+    this.composer?.setPixelRatio(pr);
+    this.bloomOn = L.bloom;
+    if (!prev || prev.shadow !== L.shadow) {
+      this.shadows = L.shadow;
+      this.renderer.shadowMap.enabled = L.shadow;
+      this.heroSpot.castShadow = L.shadow;
+      this.scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+    }
+    this.size = [0, 0];  // resize on the next frame
+  }
+  // Pick the level from the setting; in 'auto' step down when frames run
+  // slow and back up after a long smooth stretch (not onto a level that
+  // already failed twice).
+  tune(settings) {
+    const mode = settings.quality3d || 'auto';
+    const P = this.perf, now = performance.now(), ft = now - P.t;
+    P.t = now;
+    if (ft < 250) { P.sum += ft; P.n++; }
+    if (P.sum < 1500) { if (this.qLevel < 0) this.setLevel(mode === 'auto' ? this.autoLevel : PRESET[mode]); return; }
+    const avg = P.sum / P.n;
+    P.fps = 1000 / avg; P.sum = 0; P.n = 0;
+    if (mode !== 'auto') { this.setLevel(PRESET[mode] ?? 3); return; }
+    if (P.cool > 0) { P.cool--; return; }
+    if (avg > 21 && this.qLevel < LEVELS.length - 1) {
+      this.fails[this.qLevel]++;
+      this.setLevel(this.qLevel + 1); P.cool = 1; P.good = 0;
+    } else if (avg < 17.5) {
+      if (++P.good >= 4 && this.qLevel > 0 && this.fails[this.qLevel - 1] < 2) { this.setLevel(this.qLevel - 1); P.cool = 1; P.good = 0; }
+    } else P.good = 0;
+    this.autoLevel = this.qLevel;
+  }
+  get fps() { return this.perf.fps; }
+
   render(game, settings) {
     const { vw, vh } = this.app;
+    this.tune(settings);
     if (this.size[0] !== vw || this.size[1] !== vh) {
       this.size = [vw, vh];
       this.renderer.setSize(vw, vh, false);
@@ -847,6 +965,8 @@ export class View3D {
     // entities
     const V = this.views;
     this.playersN = game.players.length;
+    while (this.playerLights.length < this.playersN) { const l = new THREE.PointLight(0xffe8c0, 0, 11, 1.1); this.scene.add(l); this.playerLights.push(l); }
+    while (this.playerLights.length > Math.max(1, this.playersN)) this.scene.remove(this.playerLights.pop());
     let li = 0;
     for (const l of this.playerLights) l.intensity = 0;
     this.sync(V.players, game.players, p => (this.templates[p.heroKey] ? this.makeHero(p) : null), (p, v) => {
@@ -885,7 +1005,7 @@ export class View3D {
     }
     this.updateParticles(game);
 
-    if (this.composer) this.composer.render(dt);
+    if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
 

@@ -75,7 +75,12 @@ os números de dano e os menus continuam na camada 2D por cima.
 - A tela inicial e a escolha de heróis também usam os modelos 3D.
 - Todos os heróis atiram como no clássico: machado (Guerreiro), espada
   (Valquíria), fogo (Mago) e flecha (Elfo), com a animação de arremesso.
-- No celular o 3D usa menos luzes, sem sombras nem bloom.
+- Desempenho: cada modelo é uma única malha (as cores das peças viram cores por
+  vértice, com material Lambert), as sombras vêm de um só spot sobre o primeiro
+  herói e só existe uma luz por jogador.
+- **Qualidade 3D** (pausa): *Automática* ajusta sozinha resolução, bloom e sombras
+  para manter o FPS; *Alta*, *Média* e *Baixa* fixam o nível. **Mostrar FPS** exibe
+  o contador e o nível atual. No celular a automática começa sem bloom e sem sombras.
 - O 3D vem ligado. O botão **3D | 2d** na tela inicial ou **Gráficos 3D** na pausa troca, e a escolha fica salva; sem WebGL o jogo usa o 2D.
 
 ## O que vem do clássico

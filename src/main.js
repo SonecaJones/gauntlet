@@ -51,6 +51,7 @@ class App {
     const room = q.get('sala') || q.get('room');
     this.screen = room ? new JoinScreen(this, null, room.toUpperCase().slice(0, 4)) : new TitleScreen(this);
     this.last = performance.now();
+    this.fps = 60;
     requestAnimationFrame(ts => this.frame(ts));
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('sw.js').catch(() => { /* not available here */ });
@@ -103,6 +104,8 @@ class App {
   }
   frame(ts) {
     const dt = Math.min(0.05, Math.max(0, (ts - this.last) / 1000));
+    const ft = (ts - this.last) / 1000;
+    if (ft > 0 && ft < 0.25) this.fps += (1 / ft - this.fps) * 0.05;  // smoothed, for the FPS counter
     this.last = ts;
     const C = this.input.poll();
     if (C.touch) C.touch.autoAim = this.settings.autoAim;

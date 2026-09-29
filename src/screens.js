@@ -473,7 +473,7 @@ export class SelectScreen {
 }
 
 // ================================================================== play
-const PAUSE_ITEMS = ['resume', 'view3d', 'music', 'sfx', 'voice', 'shake', 'autoAim', 'fullscreen', 'language', 'quit'];
+const PAUSE_ITEMS = ['resume', 'view3d', 'quality3d', 'showFps', 'music', 'sfx', 'voice', 'shake', 'autoAim', 'fullscreen', 'language', 'quit'];
 
 export class PlayScreen {
   constructor(app, game) {
@@ -520,6 +520,8 @@ export class PlayScreen {
       case 'shake': s.shake = !s.shake; break;
       case 'autoAim': s.autoAim = !s.autoAim; break;
       case 'view3d': s.view3d = s.view3d === false; break;
+      case 'quality3d': { const q = ['auto', 'high', 'medium', 'low']; s.quality3d = q[(q.indexOf(s.quality3d || 'auto') + 1) % q.length]; break; }
+      case 'showFps': s.showFps = !s.showFps; break;
       case 'fullscreen': this.app.toggleFullscreen(); break;
       case 'language': { const nl = getLang() === 'pt' ? 'en' : 'pt'; setLang(nl); s.lang = nl; break; }
       case 'quit': this.app.setScreen(new TitleScreen(this.app)); return;
@@ -551,6 +553,10 @@ export class PlayScreen {
       v3.drawOverlay(ctx, game);
     } else game.draw(ctx, this.app.settings);
     drawHud(ctx, this.app, game, this.showMap);
+    if (this.app.settings.showFps) {
+      const q = v3 && v3.shown ? ` · 3D ${t('q_' + (this.app.settings.quality3d || 'auto'))} ${v3.qLevel + 1}/8` : ' · 2D';
+      txt(ctx, `${Math.round(this.app.fps)} FPS${q}`, vw / 2, vh - 16 - (this.app.safe?.b || 0), 7, '#7dffa0', 'center');
+    }
     const me = game.isClient ? game.me : game.players.find(p => p.ctrlId === 'touch');
     if (this.app.input.touchActive) {
       layoutTouch(this.app);
@@ -585,7 +591,7 @@ export class PlayScreen {
     panel(ctx, x, y, w, h, 'rgba(16,10,28,0.95)', '#ffd35a88', 12);
     txt(ctx, t('paused'), vw / 2, y + 18, 16, '#ffd35a', 'center');
     const s = this.app.settings;
-    const val = { view3d: s.view3d !== false, music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake, autoAim: s.autoAim, fullscreen: this.app.isFullscreen };
+    const val = { view3d: s.view3d !== false, showFps: !!s.showFps, music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake, autoAim: s.autoAim, fullscreen: this.app.isFullscreen };
     PAUSE_ITEMS.forEach((it, i) => {
       const ry = y + 56 + i * rh;
       const sel = i === this.menu;
@@ -593,6 +599,7 @@ export class PlayScreen {
       txt(ctx, (sel ? '▶ ' : '  ') + t(it), x + 20, ry + 2, 9, sel ? '#fff' : '#bbb');
       if (it in val) txt(ctx, val[it] ? t('on') : t('off'), x + w - 20, ry + 2, 9, val[it] ? '#7dffa0' : '#ff8a8a', 'right');
       if (it === 'language') txt(ctx, getLang().toUpperCase(), x + w - 20, ry + 2, 9, '#7ad0ff', 'right');
+      if (it === 'quality3d') txt(ctx, t('q_' + (s.quality3d || 'auto')), x + w - 20, ry + 2, 9, '#7ad0ff', 'right');
       hit(this.buttons, x + 8, ry - 6, w - 16, rh - 4, () => { this.menu = i; this.activate(it); });
     });
     if (game.isClient) txt(ctx, t('online_pause_note'), vw / 2, y + h - 22, 6, '#9a8ab8', 'center');
