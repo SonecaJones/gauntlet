@@ -95,6 +95,26 @@ Com metade da vida o chefe entra em **fúria**: fica mais rápido e agressivo. A
 - Música chiptune e efeitos sintetizados em tempo real (WebAudio).
 - Controles de toque para celular, minimapa com névoa de guerra, recordes salvos, PT-BR/EN.
 
+## Protótipo 3D (HD-2D)
+
+`proto3d/` é um teste visual separado do jogo: a masmorra real (gerada por
+`src/level.js`) em three.js, com luz de tochas, sombras, bloom e tilt-shift, e os
+quatro heróis como modelos 3D low-poly animados. Abra `/proto3d/` no servidor
+local ou no Firebase.
+
+- **H** troca o herói, **Espaço** ataca, **T** alterna modelo 3D / sprite 32 bits.
+- Parado por 3 s, o herói entra em modo demonstração.
+
+Os modelos são gerados por código no Blender, sem arquivos de arte externos:
+
+```bash
+python -m venv bvenv && bvenv/bin/pip install bpy          # Blender 4.5 como módulo Python
+bvenv/bin/python tools/blender/warrior3d.py proto3d/models/warrior.glb [pasta_de_previews]
+node tools/embed-glb.mjs                                    # atualiza os .glb.js
+```
+
+Os `.glb.js` são os mesmos modelos em base64, para rodar onde `.glb` não é servido.
+
 ## Controles
 
 | Ação | Teclado + mouse | Gamepad | Toque |
@@ -132,4 +152,7 @@ voice/            falas do narrador (geradas por tools/make-voices.mjs)
 src/heroes.js     classes e relíquias
 src/enemies.js    atributos dos monstros
 src/i18n.js       textos PT-BR / EN
+proto3d/          protótipo 3D HD-2D (three.js) e modelos .glb
+tools/blender/    scripts que modelam e animam os personagens 3D no Blender
+vendor/three/     three.js e os addons usados pelo protótipo
 ```

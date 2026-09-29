@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Gauntlet HD-2D</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #06030c; overflow: hidden; }
+  canvas { display: block; touch-action: none; }
+  #hud { position: fixed; left: 12px; top: 10px; color: #ffe9a0; font: 12px/1.5 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  #btns { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  #btns button { font: 13px ui-monospace, Menlo, Consolas, monospace; color: #ffe9a0; background: rgba(40,24,50,0.85); border: 1px solid #ffd35a; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+  #btns button:focus-visible { outline: 2px solid #ffd35a; outline-offset: 2px; }
+  #hud b { color: #ffd35a; font-size: 14px; letter-spacing: 0.08em; }
+  #hud span { color: #b8a8d0; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three/three.module.js", "three/addons/": "../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="hud"><b>GAUNTLET · PROTÓTIPO HD-2D</b><br><span>WASD / setas / arraste para andar · Espaço golpeia · H troca o herói · T alterna 3D/sprite · parado = demonstração</span><br><span id="fps"></span></div>
+<div id="btns"><button id="hero">Herói: Guerreiro  ⇄</button><button id="toggle">Ver: Modelo 3D  ⇄</button><button id="atk">Golpe (Espaço)</button></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
