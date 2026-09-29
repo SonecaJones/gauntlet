@@ -19,7 +19,7 @@ class App {
     this.ctx = canvas.getContext('2d');
     this.isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     const defLang = (navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en';
-    this.settings = { music: true, sfx: true, voice: true, shake: true, autoAim: true, lang: defLang, ...load(SETTINGS_KEY, {}) };
+    this.settings = { music: true, sfx: true, voice: true, shake: true, autoAim: true, view3d: true, lang: defLang, ...load(SETTINGS_KEY, {}) };
     setLang(this.settings.lang);
     this.scores = load(SCORES_KEY, []);
     if (!Array.isArray(this.scores)) this.scores = [];
@@ -31,6 +31,10 @@ class App {
     document.addEventListener('gesturestart', e => e.preventDefault());
     this.net = null;
     this.wakeLock = null;
+    // 3D view (three.js + Blender models); the game draws in 2D until it is
+    // ready, or for good if WebGL is missing.
+    this.view3d = null;
+    import('./view3d.js').then(m => { this.view3d = new m.View3D(this); }).catch(err => console.warn('3D view unavailable', err));
 
     this.safeProbe = document.createElement('div');
     this.safeProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);';
@@ -110,7 +114,9 @@ class App {
     ctx.imageSmoothingEnabled = true;
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+    if (this.view3d) this.view3d.drawn = false;
     this.screen.draw(ctx);
+    if (this.view3d && !this.view3d.drawn) this.view3d.hide();
     this.input.endFrame();
     requestAnimationFrame(t => this.frame(t));
   }

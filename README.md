@@ -63,6 +63,20 @@ A biblioteca do PeerJS está em `vendor/peerjs.min.js` (licença MIT), então o 
 
 `npm start` também sobe um intermediário WebSocket de salas. Para usá-lo, abra o jogo com `?transport=ws` (mesmo endereço do servidor) ou `?server=wss://seu-servidor/ws`.
 
+## Gráficos 3D
+
+O jogo é desenhado em 3D (three.js) com os mesmos modelos low-poly do protótipo
+HD-2D: heróis, monstros, geradores e chefes animados, luz de tochas e sombras. A
+simulação é a mesma do 2D (`src/game.js`), então velocidade, dano, projéteis e o
+modo online não mudam; o 3D (`src/view3d.js`) só lê o estado e desenha. O HUD,
+os números de dano e os menus continuam na camada 2D por cima.
+
+- Muros entre a câmera e um herói ficam translúcidos, para ele nunca sumir atrás deles.
+- Todos os heróis atiram como no clássico: machado (Guerreiro), espada
+  (Valquíria), fogo (Mago) e flecha (Elfo), com a animação de arremesso.
+- No celular o 3D usa menos luzes, sem sombras nem bloom.
+- Na pausa, **Gráficos 3D** liga/desliga; desligado (ou sem WebGL) o jogo volta ao 2D.
+
 ## O que vem do clássico
 
 - Quatro heróis: **Guerreiro**, **Valquíria**, **Mago** e **Elfo**, cada um com velocidade, armadura, ataque e magia diferentes.
@@ -156,7 +170,8 @@ src/screens.js    telas: título, seleção, jogo/pausa, relíquias, fim de jogo
 src/game.js       simulação: heróis, inimigos, IA, combate, câmera, iluminação
 src/boss.js       chefes: IA do Dragão, Necromante e Golem, ondas de choque, vitória
 src/level.js      gerador procedural de masmorras
-src/render.js     arte procedural (tiles, heróis, monstros, itens)
+src/render.js     arte procedural 2D (tiles, heróis, monstros, itens)
+src/view3d.js     visão 3D do jogo (three.js + modelos de proto3d/models)
 src/ui.js         HUD, minimapa, controles de toque
 src/input.js      teclado, mouse, gamepads e toque unificados
 src/net.js        salas, sincronização de telas e controles remotos

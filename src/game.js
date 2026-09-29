@@ -167,6 +167,7 @@ export class Game {
     return true;
   }
   screenToWorld(sx, sy) {
+    if (this.app.view3d?.shown) return this.app.view3d.screenToWorld(sx, sy);
     const z = this.cam.zoom;
     return { x: (sx - this.app.vw / 2) / z + this.cam.x, y: (sy - this.app.vh / 2) / z + this.cam.y };
   }

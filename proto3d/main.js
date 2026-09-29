@@ -136,25 +136,34 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 }
 const sideMat = new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.95 });
 const topMat = new THREE.MeshStandardMaterial({ map: topTex, roughness: 1 });
-const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, WALL_H, 1), [sideMat, sideMat, topMat, topMat, sideMat, sideMat], wallTiles.length);
-const m4 = new THREE.Matrix4();
-wallTiles.forEach(([x, y], i) => walls.setMatrixAt(i, m4.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5)));
+const wallGeo = new THREE.BoxGeometry(1, WALL_H, 1);
+const walls = new THREE.InstancedMesh(wallGeo, [sideMat, sideMat, topMat, topMat, sideMat, sideMat], wallTiles.length);
 walls.castShadow = walls.receiveShadow = true;
-scene.add(walls);
-const wallLow = new Uint8Array(wallTiles.length);
-// Walls standing between the camera and the hero drop to a low stub.
+// Walls standing between the camera and the hero turn see-through (they
+// used to drop to a stub, which made the room layout hard to read).
+const ghostMat = m => { const c = m.clone(); c.transparent = true; c.opacity = 0.28; c.depthWrite = false; return c; };
+const wallsSeeThrough = new THREE.InstancedMesh(wallGeo, [sideMat, sideMat, topMat, topMat, sideMat, sideMat].map(ghostMat), wallTiles.length);
+wallsSeeThrough.renderOrder = 2;
+scene.add(walls, wallsSeeThrough);
+const m4 = new THREE.Matrix4();
+const wallFaded = new Uint8Array(wallTiles.length).fill(255);
 function cutaway(hx, hy) {
   let dirty = false;
-  wallTiles.forEach(([x, y], i) => {
+  const faded = wallTiles.map(([x, y], i) => {
     const dx = x + 0.5 - hx, dy = y + 0.5 - hy;
-    const low = dy > 0.2 && dy < 4.5 && Math.abs(dx) < 2.2 + dy * 0.5 ? 1 : 0;
-    if (low === wallLow[i]) return;
-    wallLow[i] = low; dirty = true;
-    const hgt = low ? 0.18 : WALL_H;
-    m4.makeScale(1, hgt / WALL_H, 1).setPosition(x + 0.5, hgt / 2, y + 0.5);
-    walls.setMatrixAt(i, m4);
+    const f = dy > 0.2 && dy < 3.5 && Math.abs(dx) < 1.6 + dy * 0.5 ? 1 : 0;
+    if (f !== wallFaded[i]) dirty = true;
+    return f;
   });
-  if (dirty) walls.instanceMatrix.needsUpdate = true;
+  if (!dirty) return;
+  wallFaded.set(faded);
+  let a = 0, b = 0;
+  wallTiles.forEach(([x, y], i) => {
+    m4.makeTranslation(x + 0.5, WALL_H / 2, y + 0.5);
+    if (faded[i]) wallsSeeThrough.setMatrixAt(b++, m4); else walls.setMatrixAt(a++, m4);
+  });
+  walls.count = a; wallsSeeThrough.count = b;
+  walls.instanceMatrix.needsUpdate = wallsSeeThrough.instanceMatrix.needsUpdate = true;
 }
 
 // doors

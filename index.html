@@ -20,7 +20,11 @@
   html, body { margin: 0; height: 100%; background: #050308; overflow: hidden; overscroll-behavior: none; }
   body { position: fixed; inset: 0; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; outline: none; cursor: crosshair; -webkit-user-select: none; user-select: none; }
+  #game { position: fixed; inset: 0; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
 </head>
 <body>
 <canvas id="game" tabindex="0"></canvas>

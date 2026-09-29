@@ -454,7 +454,7 @@ export class SelectScreen {
 }
 
 // ================================================================== play
-const PAUSE_ITEMS = ['resume', 'music', 'sfx', 'voice', 'shake', 'autoAim', 'fullscreen', 'language', 'quit'];
+const PAUSE_ITEMS = ['resume', 'view3d', 'music', 'sfx', 'voice', 'shake', 'autoAim', 'fullscreen', 'language', 'quit'];
 
 export class PlayScreen {
   constructor(app, game) {
@@ -500,6 +500,7 @@ export class PlayScreen {
       case 'voice': s.voice = !s.voice; if (!s.voice) window.speechSynthesis?.cancel(); break;
       case 'shake': s.shake = !s.shake; break;
       case 'autoAim': s.autoAim = !s.autoAim; break;
+      case 'view3d': s.view3d = s.view3d === false; break;
       case 'fullscreen': this.app.toggleFullscreen(); break;
       case 'language': { const nl = getLang() === 'pt' ? 'en' : 'pt'; setLang(nl); s.lang = nl; break; }
       case 'quit': this.app.setScreen(new TitleScreen(this.app)); return;
@@ -523,7 +524,13 @@ export class PlayScreen {
       txt(ctx, t('waiting_host'), vw / 2, vh / 2, 10, '#7ad0ff', 'center');
       return;
     }
-    game.draw(ctx, this.app.settings);
+    const v3 = this.app.view3d;
+    if (v3 && v3.usable(this.app.settings)) {
+      v3.render(game, this.app.settings);
+      v3.drawn = true;
+      ctx.clearRect(0, 0, vw, vh);
+      v3.drawOverlay(ctx, game);
+    } else game.draw(ctx, this.app.settings);
     drawHud(ctx, this.app, game, this.showMap);
     const me = game.isClient ? game.me : game.players.find(p => p.ctrlId === 'touch');
     if (this.app.input.touchActive) {
@@ -559,7 +566,7 @@ export class PlayScreen {
     panel(ctx, x, y, w, h, 'rgba(16,10,28,0.95)', '#ffd35a88', 12);
     txt(ctx, t('paused'), vw / 2, y + 18, 16, '#ffd35a', 'center');
     const s = this.app.settings;
-    const val = { music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake, autoAim: s.autoAim, fullscreen: this.app.isFullscreen };
+    const val = { view3d: s.view3d !== false, music: s.music, sfx: s.sfx, voice: s.voice, shake: s.shake, autoAim: s.autoAim, fullscreen: this.app.isFullscreen };
     PAUSE_ITEMS.forEach((it, i) => {
       const ry = y + 56 + i * rh;
       const sel = i === this.menu;
