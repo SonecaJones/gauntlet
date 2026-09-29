@@ -1,5 +1,5 @@
 // Offline support: network first (so updates arrive right away), cache as fallback.
-const CACHE = 'cryptfall-v11';
+const CACHE = 'cryptfall-v12';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/main.js', 'src/audio.js', 'src/constants.js', 'src/enemies.js', 'src/game.js', 'src/heroes.js',

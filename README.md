@@ -1,5 +1,9 @@
 # Cryptfall: Co-op Dungeon Crawler
 
+**▶ Jogue agora: [cryptfall.web.app](https://cryptfall.web.app/)** (grátis, no navegador e no celular)
+
+[![Cryptfall](icons/og-image.jpg)](https://cryptfall.web.app/)
+
 Um dungeon crawler cooperativo inspirado no **Gauntlet do NES**, com recursos e jogabilidade modernos — roda direto no navegador, sem dependências, sem build e sem nenhum arquivo de imagem ou áudio (tudo é gerado por código).
 
 ## Como jogar
