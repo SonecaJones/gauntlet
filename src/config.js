@@ -15,6 +15,10 @@ export const NET_CONFIG = {
   //                            { urls: 'turn:turn.example.com:3478', username: 'u', credential: 'p' }] } }
   peer: {},
 
+  // Invite links point here when the game runs inside another page (itch.io,
+  // game portals), since the embedded page's own address can't be shared.
+  publicUrl: 'https://cryptfall.web.app/',
+
   // A guest or host silent for this long is treated as disconnected.
   timeoutSec: 15,
 };

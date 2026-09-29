@@ -41,6 +41,10 @@ firebase deploy --only hosting
 
 O `firebase.json` já está configurado (publica a raiz, ignora `server.js`, `README.md` etc.). Tanto o modo local quanto o online funcionam direto no Hosting.
 
+## Publicar no itch.io
+
+`npm run itch` gera `dist/cryptfall-itch.zip` (só os arquivos que o jogo carrega) para enviar como projeto HTML. Os textos da página, as configurações, a capa e as screenshots estão em `itch/`. Dentro do itch o jogo roda num iframe, então os convites de sala apontam para o `publicUrl` de `src/config.js` (cryptfall.web.app); as salas são as mesmas nos dois lugares.
+
 ## Multiplayer online
 
 Funciona **só com o navegador**, sem servidor próprio: os jogadores se conectam direto entre si por **WebRTC**, e o [PeerJS](https://peerjs.com) (serviço público e gratuito) é usado apenas para eles se encontrarem, por alguns segundos.

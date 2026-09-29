@@ -8,6 +8,11 @@ const EDGES = ['dash', 'special', 'potion', 'confirm', 'back', 'start', 'pause',
 const SNAP_EVERY = 0.05;
 const STATE_EVERY = 0.1;
 
+// True inside an iframe (itch.io and other portals).
+function embedded() {
+  try { return window.self !== window.top; } catch { return true; }
+}
+
 // Merges every local device into one controller (a guest plays one hero).
 function mergeLocal(C, prevId) {
   const out = { move: { x: 0, y: 0 }, aim: null, aimPoint: null, fire: false, fireFacing: false };
@@ -77,7 +82,7 @@ export class Net {
   }
 
   inviteUrl() {
-    const u = new URL(location.href);
+    const u = new URL(embedded() ? NET_CONFIG.publicUrl : location.href);
     u.search = '';
     u.hash = '';
     u.searchParams.set('sala', this.code);

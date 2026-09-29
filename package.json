@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && for f in src/*.js; do node --check \"$f\" || exit 1; done",
-    "voices": "node tools/make-voices.mjs"
+    "voices": "node tools/make-voices.mjs",
+    "itch": "node tools/make-itch.mjs"
   },
   "devDependencies": {
     "mespeak": "2.0.2"

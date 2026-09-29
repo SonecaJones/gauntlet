@@ -121,7 +121,7 @@ Servidores de amigos, de gamedev (canal #showcase / #self-promo) e de retrogamin
 
 ## 8. Vitrines de jogos (grátis)
 
-- **itch.io**: crie uma página "HTML game" apontando/embutindo o jogo. É onde mais gente procura jogos de navegador. Tags: `co-op`, `dungeon-crawler`, `retro`, `roguelite`, `multiplayer`, `local-co-op`.
+- **itch.io**: tudo pronto em `itch/pagina.md` (textos, configurações, capa e screenshots) e `npm run itch` gera o .zip. É onde mais gente procura jogos de navegador. Tags: `co-op`, `dungeon-crawler`, `retro`, `roguelite`, `multiplayer`, `local-co-op`.
 - **Newgrounds**, **CrazyGames** e **Poki** aceitam jogos de navegador (CrazyGames e Poki têm curadoria e podem pedir ajustes).
 - **Product Hunt**, se quiser alcance fora do público gamer.
 
