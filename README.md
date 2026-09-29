@@ -98,11 +98,15 @@ Com metade da vida o chefe entra em **fúria**: fica mais rápido e agressivo. A
 ## Protótipo 3D (HD-2D)
 
 `proto3d/` é um teste visual separado do jogo: a masmorra real (gerada por
-`src/level.js`) em three.js, com luz de tochas, sombras, bloom e tilt-shift, e os
-quatro heróis como modelos 3D low-poly animados. Abra `/proto3d/` no servidor
-local ou no Firebase.
+`src/level.js`) em three.js, com luz de tochas, sombras, bloom e tilt-shift. Os
+quatro heróis, os seis monstros e os geradores são modelos 3D low-poly animados.
+Abra `/proto3d/` no servidor local ou no Firebase.
 
 - **H** troca o herói, **Espaço** ataca, **T** alterna modelo 3D / sprite 32 bits.
+- Monstros perseguem, golpeiam e atiram: bola de fogo do Demônio, pedra do
+  Arremessador, magia do Feiticeiro. O Feiticeiro some e reaparece.
+- Os geradores (pilha de ossos e cabana) soltam novos monstros e podem ser destruídos.
+- O herói não morre no protótipo: o HUD conta os monstros abatidos e os golpes recebidos.
 - Parado por 3 s, o herói entra em modo demonstração.
 
 Os modelos são gerados por código no Blender, sem arquivos de arte externos:
@@ -110,6 +114,7 @@ Os modelos são gerados por código no Blender, sem arquivos de arte externos:
 ```bash
 python -m venv bvenv && bvenv/bin/pip install bpy          # Blender 4.5 como módulo Python
 bvenv/bin/python tools/blender/warrior3d.py proto3d/models/warrior.glb [pasta_de_previews]
+bvenv/bin/python tools/blender/enemies3d.py all proto3d/models [pasta_de_previews]
 node tools/embed-glb.mjs                                    # atualiza os .glb.js
 ```
 
@@ -152,7 +157,7 @@ voice/            falas do narrador (geradas por tools/make-voices.mjs)
 src/heroes.js     classes e relíquias
 src/enemies.js    atributos dos monstros
 src/i18n.js       textos PT-BR / EN
-proto3d/          protótipo 3D HD-2D (three.js) e modelos .glb
-tools/blender/    scripts que modelam e animam os personagens 3D no Blender
+proto3d/          protótipo 3D HD-2D (three.js): heróis, monstros (monsters.js), projéteis (shots.js), modelos .glb
+tools/blender/    scripts que modelam e animam heróis, monstros e geradores 3D no Blender
 vendor/three/     three.js e os addons usados pelo protótipo
 ```

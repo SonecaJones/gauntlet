@@ -7,8 +7,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { generateLevel } from '../src/level.js';
 import { T } from '../src/constants.js';
-import { drawEnemy, drawItem, drawGenerator } from '../src/render.js';
-import { warrior, ghost, pixelize } from './sprite32.js';
+import { drawItem } from '../src/render.js';
+import { warrior, pixelize } from './sprite32.js';
+import { createShots } from './shots.js';
+import { createMonsters } from './monsters.js';
 
 // ------------------------------------------------------------------ level
 const L = generateLevel(3, 20260929, 1);
@@ -240,12 +242,14 @@ const UPPER = ['chest', 'head', 'cape', 'arm_upper_L', 'arm_lower_L', 'arm_upper
 const isUpper = tr => UPPER.some(b => tr.name.startsWith(b + '.'));
 const HEROES = { warrior: { label: 'Guerreiro' }, valkyrie: { label: 'Valquíria' }, wizard: { label: 'Mago', shot: 'bolt' }, elf: { label: 'Elfo', shot: 'arrow' } };
 let heroName = 'warrior', acts = {}, layers = { L: null, U: null };
-for (const [name, h] of Object.entries(HEROES)) {
-  import(`./models/${name}.glb.js`).then(({ default: b64 }) => {
+// models are base64 ES modules (see tools/embed-glb.mjs)
+function loadModel(name) {
+  return import(`./models/${name}.glb.js`).then(({ default: b64 }) => new Promise((ok, fail) => {
     const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
-    new GLTFLoader().parse(bin, '', gltf => onModel(name, gltf), err => console.error('model', name, err));
-  });
+    new GLTFLoader().parse(bin, '', ok, fail);
+  }));
 }
+for (const name of Object.keys(HEROES)) loadModel(name).then(gltf => onModel(name, gltf), err => console.error('model', name, err));
 function onModel(name, gltf) {
   const h = HEROES[name];
   h.model = gltf.scene;
@@ -308,9 +312,10 @@ function attack() {
   attackT = acts['Attack:U'].getClip().duration;
   layers.U = null;
   setLayer('U', 'Attack', 0.06);
-  // the wizard's bolt leaves as the staff swings forward, the elf's arrow on release
+  // the wizard's bolt leaves as the staff swings forward, the elf's arrow on
+  // release; the warrior's and valkyrie's blows land mid-swing
   const shot = HEROES[heroName].shot;
-  if (shot) { boltKind = shot; boltDelay = attackT * 0.5; }
+  if (shot) { shotKind = shot; shotDelay = attackT * 0.5; } else meleeDelay = attackT * 0.45;
 }
 function applyView() {
   hero.visible = view === 'sprite' || !model;
@@ -324,24 +329,8 @@ document.getElementById('hero')?.addEventListener('click', () => { nextHero(); l
 document.getElementById('toggle')?.addEventListener('click', () => { view = view === '3d' ? 'sprite' : '3d'; applyView(); lastInput = performance.now(); });
 document.getElementById('atk')?.addEventListener('click', () => { attack(); lastInput = performance.now(); });
 
-// enemies, generators and loot from the real level
+// loot from the real level (monsters and generators live in monsters.js)
 const actors = [];
-const ghostFrames = [0, 1, 2, 3].map(f => tex(pixelize(ghost(f))));
-for (const e of L.enemies) {
-  if (e.type === 'ghost') {
-    const m = spriteMesh(pixelize(ghost(0)), 0.8, { opacity: 0.85, emissive: 0x6070c0, emissiveIntensity: 0.35, noShadow: true });
-    m.material.map = ghostFrames[0];
-    actors.push({ m, x: e.x + 0.5, y: e.y + 0.5, kind: 'ghost', ph: Math.random() * 10 });
-  } else {
-    const c = vectorSprite(40, g => { g.translate(20, 26); drawEnemy(g, { type: e.type, tier: e.tier, x: 0, y: 0, face: Math.PI / 2, flash: 0, anim: 1, atk: 0, shootCd: 2, invis: false, r: 12 }, 0); });
-    const m = spriteMesh(c, 1.0);
-    actors.push({ m, x: e.x + 0.5, y: e.y + 0.5, kind: 'enemy', ph: Math.random() * 10 });
-  }
-}
-for (const gnr of L.generators) {
-  const c = vectorSprite(44, g => { g.translate(22, 26); drawGenerator(g, { type: gnr.type, tier: gnr.tier, maxTier: gnr.tier, x: 0, y: 0, hp: 1, hpPerTier: 1, spawnT: 5, flash: 0 }, 0); });
-  actors.push({ m: spriteMesh(c, 1.15), x: gnr.x + 0.5, y: gnr.y + 0.5, kind: 'gen', ph: 0 });
-}
 const glowItems = [];
 for (const it of L.items) {
   const c = vectorSprite(28, g => { g.translate(14, 16); drawItem(g, { kind: it.kind, sub: it.sub, x: 0, y: 0, bob: 0 }, 0); });
@@ -364,88 +353,33 @@ function particles(n, color, size) {
 const embers = particles(160, 0xff8a3a, 0.09);
 const dust = particles(120, 0x9a8ac8, 0.05);
 
-// wizard's magic bolt: glowing orb with its own light and a trail of sparks.
-// The light always exists (intensity 0 when idle) so no shader recompiles.
-const sparks = particles(160, 0x7fd8ff, 0.08);
-const boltLight = new THREE.PointLight(0x66ccff, 0, 5, 1.6);
-scene.add(boltLight);
-const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: 0xc8f2ff }));
-bolt.visible = false;
-scene.add(bolt);
-let boltT = 0, boltDelay = 0, boltFlash = 0, boltKind = 'bolt', flyKind = 'bolt';
-// the elf's arrow: shaft, steel head and red fletching, lying along +Z
-const arrowShot = new THREE.Group();
-{
-  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a2a, roughness: 0.8 });
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.6, 5), wood);
-  shaft.rotation.x = Math.PI / 2;
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 4), new THREE.MeshStandardMaterial({ color: 0xc8d0e0, metalness: 0.3, roughness: 0.4 }));
-  tip.rotation.x = Math.PI / 2; tip.position.z = 0.34;
-  arrowShot.add(shaft, tip);
-  for (let i = 0; i < 3; i++) {
-    const vane = new THREE.Group();
-    vane.rotation.z = i * Math.PI * 2 / 3;
-    const f = new THREE.Mesh(new THREE.PlaneGeometry(0.035, 0.1), new THREE.MeshStandardMaterial({ color: 0xd8261c, side: THREE.DoubleSide }));
-    f.rotation.x = Math.PI / 2; f.position.set(0.02, 0, -0.25);
-    vane.add(f);
-    arrowShot.add(vane);
-  }
-  arrowShot.traverse(o => { o.castShadow = true; });
+// projectiles and sparks, monsters and generators
+const shots = createShots({ scene, solid, glowTex });
+let shotKind = null, shotDelay = 0, meleeDelay = 0, shake = 0, hurt = 0;
+function heroHit(type, x, y) {
+  // the hero can't die in this prototype: just sparks, a shake and a counter
+  shots.burst(heroPos.x, 0.6, heroPos.y, 18, 2, 0.35, 0xff3030);
+  shake = 0.18;
+  hurt++;
 }
-arrowShot.visible = false;
-scene.add(arrowShot);
-const boltV = new THREE.Vector2();
-function burst(x, y, z, n, speed, life = 0.4) {
-  let k = 0;
-  for (const d of sparks.data) {
-    if (d.life > 0) continue;
-    const a = Math.random() * Math.PI * 2, e = Math.random() * 2 - 1, r = Math.sqrt(1 - e * e) * speed * (0.4 + Math.random() * 0.6);
-    d.life = d.max = life * (0.6 + Math.random() * 0.8);
-    d.x = x; d.y = y; d.z = z; d.vx = Math.cos(a) * r; d.vz = Math.sin(a) * r; d.vy = e * speed * 0.6;
-    if (++k >= n) break;
-  }
-}
-function updateBolt(dt) {
-  if (boltDelay > 0 && (boltDelay -= dt) <= 0 && model) {
-    const fx = Math.sin(modelAngle), fz = Math.cos(modelAngle);
-    flyKind = boltKind;
-    const isArrow = flyKind === 'arrow';
-    const obj = isArrow ? arrowShot : bolt;
-    obj.position.set(heroPos.x + fx * 0.45, isArrow ? 0.6 : 0.72, heroPos.y + fz * 0.45);
-    obj.rotation.set(0, modelAngle, 0);
-    boltV.set(fx, fz);
-    boltT = isArrow ? 0.9 : 1.2;
-    obj.visible = true;
-    sparks.p.material.color.set(isArrow ? 0xffe2a0 : 0x7fd8ff);
-    if (!isArrow) burst(obj.position.x, obj.position.y, obj.position.z, 16, 1.6, 0.3);
-  }
-  if (boltT > 0) {
-    const isArrow = flyKind === 'arrow';
-    const obj = isArrow ? arrowShot : bolt;
-    boltT -= dt;
-    obj.position.x += boltV.x * (isArrow ? 13 : 8) * dt;
-    obj.position.z += boltV.y * (isArrow ? 13 : 8) * dt;
-    if (!isArrow) {
-      bolt.scale.setScalar(1 + 0.25 * Math.sin(time * 45));
-      burst(bolt.position.x, bolt.position.y, bolt.position.z, 3, 0.5, 0.35);
-      boltLight.position.copy(bolt.position);
-      boltLight.intensity = 7;
-    }
-    if (boltT <= 0 || solid(Math.floor(obj.position.x), Math.floor(obj.position.z))) {
-      burst(obj.position.x, obj.position.y, obj.position.z, isArrow ? 14 : 50, isArrow ? 1.6 : 3.2, isArrow ? 0.3 : 0.5);
-      boltT = 0; obj.visible = false; boltFlash = isArrow ? 0 : 0.3;
-    }
-  } else if (boltFlash > 0) {
-    boltFlash -= dt;
-    boltLight.intensity = Math.max(0, boltFlash / 0.3) * 14;
-  } else boltLight.intensity = 0;
-  const sp = sparks.p.geometry.attributes.position.array;
-  sparks.data.forEach((d, i) => {
-    if (d.life > 0) { d.life -= dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.vx *= 0.94; d.vy *= 0.94; d.vz *= 0.94; }
-    const ok = d.life > 0 && Number.isFinite(d.x);
-    sp[i * 3] = ok ? d.x : 0; sp[i * 3 + 1] = ok ? d.y : -10; sp[i * 3 + 2] = ok ? d.z : 0;
+const monsters = createMonsters({
+  scene, level: L, loadModel, blocked: (x, y) => blocked(x, y), burst: shots.burst, glowTex,
+  fire: (kind, x, y, dir, owner, dist) => shots.fire(kind, x, y, dir, owner, dist), onHeroHit: heroHit,
+});
+monsters.ready.then(() => { rendered = 0; });
+const aim = new THREE.Vector2();
+function updateCombat(dt) {
+  if (shotDelay > 0 && (shotDelay -= dt) <= 0 && model) shots.fire(shotKind, heroPos.x, heroPos.y, aim.set(Math.sin(modelAngle), Math.cos(modelAngle)), 'hero');
+  if (meleeDelay > 0 && (meleeDelay -= dt) <= 0 && model) monsters.hitArc(heroPos.x, heroPos.y, modelAngle, 1.35, 1.1, heroName === 'warrior' ? 40 : 32);
+  monsters.update(dt, time, heroPos.x, heroPos.y);
+  shots.update(dt, time, {
+    hitHero: (x, z, r, kind) => {
+      if (Math.hypot(x - heroPos.x, z - heroPos.y) > r + 0.2) return false;
+      heroHit(kind, x, z);
+      return true;
+    },
+    hitMonsters: (x, z, r, dmg, splash) => monsters.hitAt(x, z, r, dmg, splash),
   });
-  sparks.p.geometry.attributes.position.needsUpdate = true;
 }
 
 // ------------------------------------------------------------------ post-processing
@@ -564,16 +498,10 @@ function tick(now) {
   hero.scale.x = facingLeft ? -1 : 1;
   heroLight.position.set(heroPos.x, 2.6, heroPos.y + 1.4);
 
-  // actors idle animation
+  // loot bobs in place
   for (const a of actors) {
     a.ph += dt;
-    if (a.kind === 'ghost') {
-      const ang = a.ph * 0.6;
-      a.m.position.set(a.x + Math.cos(ang) * 0.6, 0.15 + Math.sin(a.ph * 3) * 0.08, a.y + Math.sin(ang) * 0.4);
-      a.m.material.map = ghostFrames[Math.floor(a.ph * 6) % 4];
-      a.m.scale.x = Math.sin(ang) > 0 ? -1 : 1;
-    } else if (a.kind === 'item') a.m.position.set(a.x, 0.04 + Math.abs(Math.sin(a.ph * 2.5)) * 0.08, a.y);
-    else a.m.position.set(a.x, a.kind === 'enemy' ? Math.abs(Math.sin(a.ph * 4)) * 0.03 : 0, a.y);
+    a.m.position.set(a.x, 0.04 + Math.abs(Math.sin(a.ph * 2.5)) * 0.08, a.y);
   }
 
   // torch light pool: nearest torches to the hero
@@ -610,7 +538,7 @@ function tick(now) {
   });
   dust.p.geometry.attributes.position.needsUpdate = true;
 
-  updateBolt(dt);
+  updateCombat(dt);
 
   // camera: 3/4 view, slightly lagging behind the hero
   const portrait = innerHeight > innerWidth;
@@ -618,13 +546,18 @@ function tick(now) {
   camera.position.lerp(camPos, 1 - Math.pow(0.02, dt));
   camLook.set(camera.position.x, 0.5, camera.position.z - (portrait ? 8.6 : 7.6) - 0.3);
   camera.lookAt(camLook);
+  if (shake > 0) {
+    shake -= dt;
+    camera.position.x += (Math.random() - 0.5) * shake * 0.5;
+    camera.position.y += (Math.random() - 0.5) * shake * 0.5;
+  }
 
   composer.render(dt);
   // Shadow maps only exist after the first frames; rebuild the shaders once
   // so every material samples them (and its own texture) correctly.
   if (++rendered === 3) scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
   frames++; fpsT += dt;
-  if (fpsT > 0.5) { if (fpsEl) fpsEl.textContent = Math.round(frames / fpsT) + ' fps'; frames = 0; fpsT = 0; }
+  if (fpsT > 0.5) { if (fpsEl) fpsEl.textContent = `${Math.round(frames / fpsT)} fps · monstros abatidos: ${monsters.kills} · golpes recebidos: ${hurt}`; frames = 0; fpsT = 0; }
   requestAnimationFrame(tick);
 }
 camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6);
@@ -638,4 +571,4 @@ addEventListener('resize', () => {
   tilt.uniforms.res.value.set(innerWidth, innerHeight);
 });
 
-window.proto = { dbg: () => dbg, boltState: () => [boltDelay, boltT, boltKind, attackT, !!model], useHero, heroes: HEROES, bolt, arrowShot, layers: () => [layers.L?.getClip().name, layers.U?.getClip().name], face: a => { modelAngle = a; lastInput = performance.now() + 60000; }, get model() { return model; }, attack, setView: v => { view = v; applyView(); }, camera, renderer, scene, torchLights, heroLight, hero, heroFrames, heroPos, demoPath, setDemo: i => { demoIdx = i; heroPos.set(demoPath[i][0], demoPath[i][1]); camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6); } };
+window.proto = { dbg: () => dbg, combat: () => ({ shotDelay, meleeDelay, attackT, hurt, kills: monsters.kills }), updateCombat, useHero, heroes: HEROES, shots, monsters, layers: () => [layers.L?.getClip().name, layers.U?.getClip().name], face: a => { modelAngle = a; lastInput = performance.now() + 60000; }, get model() { return model; }, attack, setView: v => { view = v; applyView(); }, camera, renderer, scene, torchLights, heroLight, hero, heroFrames, heroPos, demoPath, setDemo: i => { demoIdx = i; heroPos.set(demoPath[i][0], demoPath[i][1]); camera.position.set(heroPos.x, 6.4, heroPos.y + 7.6); } };
