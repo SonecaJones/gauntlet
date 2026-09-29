@@ -136,4 +136,4 @@ class App {
   }
 }
 
-window.gauntlet = new App(document.getElementById('game'));
+window.cryptfall = new App(document.getElementById('game'));
