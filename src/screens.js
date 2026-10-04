@@ -62,12 +62,12 @@ function drawHeroes(ctx, app, list, hs, time) {
 let invite = null;  // { x, y, w, h, drawn, app } while the host badge is on screen
 let copiedAt = -1e9;
 // Sharing needs a real click (user activation), so it can't run from the game loop.
-window.addEventListener('click', e => {
-  if (!invite || performance.now() - invite.drawn > 300) return;
-  const { x, y, w, h, app } = invite;
-  if (e.clientX < x || e.clientX > x + w || e.clientY < y || e.clientY > y + h) return;
-  shareInvite(app);
-});
+const onInvite = (px, py) => {
+  if (!invite || performance.now() - invite.drawn > 300) return false;
+  const { x, y, w, h } = invite;
+  return px >= x && px <= x + w && py >= y && py <= y + h;
+};
+window.addEventListener('click', e => { if (onInvite(e.clientX, e.clientY)) shareInvite(invite.app); });
 async function shareInvite(app) {
   const net = app.net;
   if (!net || net.status !== 'ready') return;
@@ -92,6 +92,7 @@ function roomBadge(ctx, app, buttons) {
     const a = 0.75 + Math.sin(performance.now() / 200) * 0.25;
     txt(ctx, copied ? t('link_copied') : t('invite_btn'), vw - w / 2 - 10, 32, 9, copied ? '#8f8' : `rgba(255,233,160,${a})`, 'center');
     invite = { x, y: 8, w, h: 44, drawn: performance.now(), app };
+    app.input.keepClick = onInvite;  // a Pencil tap on the badge must still click
     hit(buttons, x, 8, w, 44, () => {});  // swallow the tap; the click listener above shares
   } else txt(ctx, t('online_guest'), vw - w / 2 - 10, 35, 6, '#b8c8e0', 'center');
 }

@@ -39,6 +39,8 @@ export class Input {
     this.padPrev = {};
     this.controllers = {};
     this.onGesture = null;
+    // (x, y) -> true where a tap must still produce a real click (share button)
+    this.keepClick = null;
 
     window.addEventListener('keydown', e => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
@@ -49,7 +51,8 @@ export class Input {
       this.onGesture?.();
     });
     window.addEventListener('keyup', e => this.down.delete(e.code));
-    window.addEventListener('blur', () => { this.down.clear(); this.mouse.left = this.mouse.right = false; });
+    window.addEventListener('blur', () => { this.down.clear(); this.mouse.left = this.mouse.right = false; this.resetTouches(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.resetTouches(); });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
 
     canvas.addEventListener('pointerdown', e => {
@@ -71,11 +74,25 @@ export class Input {
       if (e.button === 2) this.mouse.right = false;
     });
     window.addEventListener('pointercancel', e => { if (isTouch(e)) this.touchEnd(e); });
+    canvas.addEventListener('lostpointercapture', e => { if (isTouch(e)) this.touchEnd(e); });
+
+    // iPadOS turns a held or dragged Apple Pencil into its own gestures (text
+    // selection, Scribble, drag and drop) and then stops sending it to the page
+    // until a finger touches the screen. Cancelling the touch events keeps the
+    // Pencil ours; pointer events still arrive. A plain finger tap keeps its
+    // default so the click-based share button still works.
+    const stylus = e => [...e.changedTouches].some(t => t.touchType === 'stylus');
+    canvas.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0];
+      if (stylus(e) && !(t && this.keepClick?.(t.clientX, t.clientY))) e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
   }
 
   // ------------------------------------------------------------ touch
   touchStart(e) {
     this.touchActive = true;
+    try { this.canvas.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     const x = e.clientX, y = e.clientY, w = window.innerWidth;
     this.clicks.push({ x, y, src: 'touch' });
     for (const b of this.touchButtons) {
@@ -85,17 +102,20 @@ export class Input {
         return;
       }
     }
-    if (x < w * 0.5 && !this.sticks.move) {
-      this.sticks.move = { id: e.pointerId, sx: x, sy: y, x, y };
-      this.touches.set(e.pointerId, { role: 'move' });
-    } else if (x >= w * 0.5 && !this.sticks.aim) {
-      this.sticks.aim = { id: e.pointerId, sx: x, sy: y, x, y };
-      this.touches.set(e.pointerId, { role: 'aim' });
-    }
+    // A new touch always takes over its half of the screen: if the browser lost
+    // the previous pointer's "up" (it happens with the Pencil), the old stick
+    // would otherwise stay stuck and ignore every later touch there.
+    const role = x < w * 0.5 ? 'move' : 'aim';
+    const old = this.sticks[role];
+    if (old) this.touches.delete(old.id);
+    this.sticks[role] = { id: e.pointerId, sx: x, sy: y, x, y };
+    this.touches.set(e.pointerId, { role });
   }
   touchMove(e) {
     const t = this.touches.get(e.pointerId);
     if (!t) return;
+    // a hovering Pencil (no tip contact) sends moves without buttons: it was lifted
+    if (e.pointerType === 'pen' && e.buttons === 0 && !e.pressure) { this.touchEnd(e); return; }
     const st = this.sticks[t.role];
     if (!st) return;
     st.x = e.clientX; st.y = e.clientY;
@@ -106,6 +126,10 @@ export class Input {
     const t = this.touches.get(e.pointerId);
     this.touches.delete(e.pointerId);
     if (t && this.sticks[t.role] && this.sticks[t.role].id === e.pointerId) this.sticks[t.role] = null;
+  }
+  resetTouches() {
+    this.touches.clear();
+    this.sticks.move = this.sticks.aim = null;
   }
   stickValue(st) {
     if (!st) return [0, 0];
