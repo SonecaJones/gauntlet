@@ -13,6 +13,10 @@ function blank(id) {
   };
 }
 
+// The Apple Pencil (and other styluses on touch screens) plays like a finger.
+const PEN_IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+const isTouch = e => e.pointerType === 'touch' || (e.pointerType === 'pen' && PEN_IS_TOUCH);
+
 function dead(x, y) {
   const m = Math.hypot(x, y);
   if (m < DEAD) return [0, 0];
@@ -50,23 +54,23 @@ export class Input {
 
     canvas.addEventListener('pointerdown', e => {
       this.onGesture?.();
-      if (e.pointerType === 'touch') { this.touchStart(e); return; }
+      if (isTouch(e)) { this.touchStart(e); return; }
       this.mouse.x = e.clientX; this.mouse.y = e.clientY; this.mouse.active = true;
       if (e.button === 0) { this.mouse.left = true; this.mouse.leftP = true; this.clicks.push({ x: e.clientX, y: e.clientY, src: 'kbm' }); }
       if (e.button === 2) { this.mouse.right = true; this.mouse.rightP = true; }
       this.touchActive = false;
     });
     window.addEventListener('pointermove', e => {
-      if (e.pointerType === 'touch') { this.touchMove(e); return; }
+      if (isTouch(e)) { this.touchMove(e); return; }
       if (Math.abs(e.clientX - this.mouse.x) + Math.abs(e.clientY - this.mouse.y) > 2) this.mouse.active = true;
       this.mouse.x = e.clientX; this.mouse.y = e.clientY;
     });
     window.addEventListener('pointerup', e => {
-      if (e.pointerType === 'touch') { this.touchEnd(e); return; }
+      if (isTouch(e)) { this.touchEnd(e); return; }
       if (e.button === 0) this.mouse.left = false;
       if (e.button === 2) this.mouse.right = false;
     });
-    window.addEventListener('pointercancel', e => { if (e.pointerType === 'touch') this.touchEnd(e); });
+    window.addEventListener('pointercancel', e => { if (isTouch(e)) this.touchEnd(e); });
   }
 
   // ------------------------------------------------------------ touch
