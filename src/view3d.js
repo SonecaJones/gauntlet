@@ -110,6 +110,11 @@ export class View3D {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.6;
+    // iOS drops the WebGL context when the app goes to the background or runs
+    // short of memory, and often never gives it back: draw in 2D meanwhile.
+    this.lost = false;
+    this.el.addEventListener('webglcontextlost', () => { this.lost = true; this.hide(); });
+    this.el.addEventListener('webglcontextrestored', () => { this.lost = false; });
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x050308);
@@ -861,7 +866,9 @@ export class View3D {
   }
 
   // ---------------------------------------------------------------- frame
-  usable(settings) { return this.ready && !this.failed && settings.view3d !== false; }
+  usable(settings) { return this.ready && !this.failed && !this.lost && settings.view3d !== false; }
+  // a 3D error must not stop the game: fall back to 2D for good
+  fail(err) { console.error('3D view disabled', err); this.failed = true; this.hide(); }
   hide() { if (this.shown) { this.el.style.visibility = 'hidden'; this.shown = false; } }
 
   // ---------------------------------------------------------------- quality
@@ -1014,7 +1021,7 @@ export class View3D {
   // list: [{ id, key, x, y (feet, screen px), size (px tall), facing (2D angle), active }]
   // Active heroes swing their weapon now and then. Returns false until ready.
   drawMenuHeroes(ctx, list, time) {
-    if (!this.ready || this.failed) return false;
+    if (!this.ready || this.failed || this.lost) return false;
     const { vw, vh } = this.app;
     if (this.size[0] !== vw || this.size[1] !== vh) {
       this.size = [vw, vh];

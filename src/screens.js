@@ -42,7 +42,11 @@ const fakeHero = (key, x, y, time, facing = Math.PI / 2, moving = true) => ({
 // list: [{ id, key, x, y, size, facing, active, hs? }] with (x, y) the sprite's anchor.
 function drawHeroes(ctx, app, list, hs, time) {
   const v3 = app.view3d;
-  if (v3 && v3.usable(app.settings) && v3.drawMenuHeroes(ctx, list.map(h => ({ ...h, y: h.y + 11 * (h.hs || hs) })), time)) return;
+  if (v3 && v3.usable(app.settings)) {
+    try {
+      if (v3.drawMenuHeroes(ctx, list.map(h => ({ ...h, y: h.y + 11 * (h.hs || hs) })), time)) return;
+    } catch (err) { v3.fail(err); }
+  }
   list.forEach((h, i) => {
     const s = h.hs || hs;
     ctx.save();
@@ -569,12 +573,16 @@ export class PlayScreen {
       return;
     }
     const v3 = this.app.view3d;
+    let drawn3d = false;
     if (v3 && v3.usable(this.app.settings)) {
-      v3.render(game, this.app.settings);
-      v3.drawn = true;
-      ctx.clearRect(0, 0, vw, vh);
-      v3.drawOverlay(ctx, game);
-    } else game.draw(ctx, this.app.settings);
+      try {
+        v3.render(game, this.app.settings);
+        v3.drawn = drawn3d = true;
+        ctx.clearRect(0, 0, vw, vh);
+        v3.drawOverlay(ctx, game);
+      } catch (err) { v3.fail(err); v3.drawn = drawn3d = false; }
+    }
+    if (!drawn3d) game.draw(ctx, this.app.settings);
     drawHud(ctx, this.app, game, this.showMap);
     if (this.app.settings.showFps) {
       const q = v3 && v3.shown ? ` · 3D ${t('q_' + (this.app.settings.quality3d || 'auto'))} ${v3.qLevel + 1}/8` : ' · 2D';

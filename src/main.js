@@ -114,25 +114,31 @@ class App {
     };
   }
   frame(ts) {
+    // whatever happens in this frame, keep the loop going
+    requestAnimationFrame(t => this.frame(t));
     const dt = Math.min(0.05, Math.max(0, (ts - this.last) / 1000));
     const ft = (ts - this.last) / 1000;
     if (ft > 0 && ft < 0.25) this.fps += (1 / ft - this.fps) * 0.05;  // smoothed, for the FPS counter
     this.last = ts;
-    const C = this.input.poll();
-    if (C.touch) C.touch.autoAim = this.settings.autoAim;
-    this.net?.beforeUpdate();
-    this.screen.update(dt);
-    this.net?.afterUpdate(dt);
-    const ctx = this.ctx;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    if (this.view3d) this.view3d.drawn = false;
-    this.screen.draw(ctx);
-    if (this.view3d && !this.view3d.drawn) this.view3d.hide();
-    this.input.endFrame();
-    requestAnimationFrame(t => this.frame(t));
+    try {
+      const C = this.input.poll();
+      if (C.touch) C.touch.autoAim = this.settings.autoAim;
+      this.net?.beforeUpdate();
+      this.screen.update(dt);
+      this.net?.afterUpdate(dt);
+      const ctx = this.ctx;
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      if (this.view3d) this.view3d.drawn = false;
+      this.screen.draw(ctx);
+      if (this.view3d && !this.view3d.drawn) this.view3d.hide();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      this.input.endFrame();
+    }
   }
 }
 
